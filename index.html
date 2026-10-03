@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ISS Live Tracker</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            background: #05080f;
+            overflow: hidden;
+            font-family: 'Inter', system-ui, sans-serif;
+        }
+        canvas { display: block; }
+
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        /* ── VIGNETTE ──────────────────────────────────────── */
+        #container::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: radial-gradient(ellipse at center, transparent 55%, rgba(3, 5, 12, 0.65) 100%);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        /* ── GLASS PANEL BASE ──────────────────────────────── */
+        .glass {
+            position: absolute;
+            border-radius: 20px;
+            padding: 18px 20px;
+            z-index: 10;
+
+            /* Glass fill */
+            background: rgba(255, 255, 255, 0.055);
+            backdrop-filter: blur(28px) saturate(180%) brightness(1.05);
+            -webkit-backdrop-filter: blur(28px) saturate(180%) brightness(1.05);
+
+            /* Border */
+            border: 1px solid rgba(255, 255, 255, 0.13);
+
+            /* Specular highlight top + subtle shadow */
+            box-shadow:
+                inset 0  1px 0 rgba(255, 255, 255, 0.22),
+                inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+                0 20px 60px rgba(0, 0, 0, 0.45),
+                0  4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        /* Rainbow shimmer on hover */
+        .glass::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: inherit;
+            background: linear-gradient(
+                135deg,
+                rgba(180, 140, 255, 0.04) 0%,
+                rgba(100, 180, 255, 0.06) 30%,
+                rgba(100, 255, 200, 0.04) 60%,
+                rgba(255, 180, 100, 0.03) 100%
+            );
+            pointer-events: none;
+        }
+
+        /* ── PANEL HEADER ──────────────────────────────────── */
+        .panel-label {
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.28);
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        /* ── ISS TELEMETRY PANEL ───────────────────────────── */
+        #issPanel {
+            top: 28px;
+            left: 28px;
+            width: 210px;
+        }
+
+        .stat-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 5px 0;
+        }
+        .stat-row + .stat-row {
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .stat-label {
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.25);
+        }
+        .stat-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.88);
+            text-shadow: 0 0 12px rgba(160, 200, 255, 0.3);
+            transition: color 0.3s ease;
+        }
+
+        /* ── TITLE ─────────────────────────────────────────── */
+        #titleBar {
+            position: absolute;
+            top: 28px;
+            left: 50%;
+            transform: translateX(-50%);
+            text-align: center;
+            pointer-events: none;
+            z-index: 10;
+            white-space: nowrap;
+        }
+        .title-main {
+            font-size: 13px;
+            font-weight: 300;
+            letter-spacing: 0.45em;
+            color: rgba(255, 255, 255, 0.65);
+            display: block;
+            text-shadow:
+                0 0 40px rgba(140, 180, 255, 0.4),
+                0 0 80px rgba(100, 140, 255, 0.2);
+        }
+        .title-sub {
+            font-size: 8px;
+            font-weight: 400;
+            letter-spacing: 0.25em;
+            color: rgba(255, 255, 255, 0.18);
+            display: block;
+            margin-top: 6px;
+            text-transform: uppercase;
+        }
+
+        /* ── NEWS PANEL ────────────────────────────────────── */
+        #newsPanel {
+            top: 28px;
+            right: 28px;
+            width: 280px;
+        }
+        #newsContent p {
+            font-size: 11px;
+            font-weight: 400;
+            line-height: 1.6;
+            padding: 8px 0;
+            color: rgba(255, 255, 255, 0.42);
+        }
+        #newsContent p + p {
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        #newsContent a {
+            display: block;
+            color: rgba(200, 220, 255, 0.78);
+            text-decoration: none;
+            margin-bottom: 3px;
+            transition: color 0.2s ease;
+        }
+        #newsContent a:hover { color: rgba(255, 255, 255, 0.95); }
+        #newsContent em {
+            font-style: normal;
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.08em;
+            color: rgba(255, 255, 255, 0.2);
+        }
+
+        /* ── BOTTOM STATUS BAR ─────────────────────────────── */
+        #statusBar {
+            position: absolute;
+            bottom: 0; left: 0; right: 0;
+            height: 36px;
+            z-index: 10;
+
+            background: rgba(255, 255, 255, 0.04);
+            backdrop-filter: blur(20px) saturate(160%);
+            -webkit-backdrop-filter: blur(20px) saturate(160%);
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+
+            display: flex;
+            align-items: center;
+            padding: 0 28px;
+            gap: 22px;
+
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.22);
+        }
+
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+        }
+        .dot {
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: rgba(120, 220, 150, 0.9);
+            box-shadow: 0 0 8px rgba(120, 220, 150, 0.7), 0 0 16px rgba(120, 220, 150, 0.3);
+            animation: pulse 2.8s ease-in-out infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1;    transform: scale(1); }
+            50%       { opacity: 0.2; transform: scale(0.7); }
+        }
+        .sep { color: rgba(255, 255, 255, 0.1); }
+        #currentTime {
+            margin-left: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.3);
+            letter-spacing: 0.08em;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+
+        <div class="glass" id="issPanel">
+            <div class="panel-label">ISS Telemetry</div>
+            <div class="stat-row"><span class="stat-label">Lat</span><span class="stat-value" id="stat-lat">—</span></div>
+            <div class="stat-row"><span class="stat-label">Lon</span><span class="stat-value" id="stat-lon">—</span></div>
+            <div class="stat-row"><span class="stat-label">Alt</span><span class="stat-value" id="stat-alt">—</span></div>
+            <div class="stat-row"><span class="stat-label">Vel</span><span class="stat-value" id="stat-vel">—</span></div>
+            <div class="stat-row"><span class="stat-label">Vis</span><span class="stat-value" id="stat-vis">—</span></div>
+            <div class="stat-row"><span class="stat-label">UTC</span><span class="stat-value" id="stat-utc">—</span></div>
+        </div>
+
+        <div id="titleBar">
+            <span class="title-main">ISS Tracker</span>
+            <span class="title-sub">International Space Station — Live Position</span>
+        </div>
+
+        <div class="glass" id="newsPanel">
+            <div class="panel-label">Space Feed</div>
+            <div id="newsContent"><p>Acquiring signal…</p></div>
+        </div>
+
+        <div id="statusBar">
+            <div class="status-item"><div class="dot"></div><span>Tracking active</span></div>
+            <span class="sep">·</span>
+            <div class="status-item"><span>NORAD 25544</span></div>
+            <span class="sep">·</span>
+            <div class="status-item"><span>2 s refresh</span></div>
+            <span id="currentTime">—</span>
+        </div>
+
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
