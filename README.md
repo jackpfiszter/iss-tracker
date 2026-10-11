@@ -19,7 +19,7 @@ Then open http://localhost:8765. Opening `index.html` straight from disk won't w
 | Key | Mode | What you see |
 | --- | --- | --- |
 | `1` | **Earth** | The whole planet, with a label on the ISS. Left alone, the view eases round to keep the ISS in frame. |
-| `2` / `F` | **Ride along** | A chase camera behind a 3D ISS whose solar arrays track the sun. Drag to look around, scroll to pull back. |
+| `2` / `F` | **Ride along** | A chase camera behind a 3D ISS whose solar arrays track the sun. Drag to look around, scroll to zoom: come in close and NASA's high-detail model loads (on desktop), with textured modules, handrails, payloads and the new roll-out arrays. |
 | `3` / `C` | **Cupola** | Inside the station's seven-window Cupola, the real one from NASA's interior model (bolted frames, handrails, the robotics workstation's controls), lit by the real sun through the windows. Drag to look around, scroll to zoom the lens. |
 | `4` | **My sky** | Flies to your location and draws the next visible pass on the ground and on a sky chart. |
 
@@ -82,7 +82,7 @@ Add `?t=<minutes>` to the URL to shift the clock, e.g. `?t=30` to see the ISS in
 - Live clouds: [live-cloud-maps](https://github.com/matteason/live-cloud-maps), updated every 3 hours. Contains modified EUMETSAT data. Falls back to a stock cloud texture.
 - Aurora: [NOAA SWPC](https://www.swpc.noaa.gov/products/aurora-30-minute-forecast) 30-minute forecast
 - Stars: the [Yale Bright Star Catalogue](https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50), 5th edition, trimmed to position, magnitude and colour in `data/stars.json`
-- ISS model: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) (International Space Station B), in `models/`
+- ISS models: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources): International Space Station B (`models/iss.glb`), and the IGOAL high-detail model (International Space Station D), reduced to `models/iss-detail.glb`
 - Cupola interior: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) (International Space Station E, Internal), cut down to the Cupola in `models/cupola.glb`
 - Relief, ocean mask, stock clouds and the moon: the [three.js](https://github.com/mrdoob/three.js) example textures, loaded from jsDelivr (the globe still renders without them)
 - Country outlines: [Natural Earth](https://www.naturalearthdata.com/) 1:110m, trimmed to names and outlines in `data/`

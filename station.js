@@ -156,6 +156,85 @@ function loadStation() {
 }
 loadStation();
 
+// ─── DETAILED MODEL ──────────────────────────────────────────────────────────
+// NASA's high-detail model of the station as it is now (IGOAL: textured
+// modules, handrails, payloads, the IROSA roll-out arrays), ~16 MB. It only
+// loads when someone zooms right in while riding along on a desktop GPU, and
+// then takes over from the light model.
+// Model axes: x = aft, y = zenith, z = starboard (a mirror image, so the
+// mapping into station space includes a reflection); 1 unit ≈ 10.8 m. Each
+// solar wing turns like the real ones: the rotary joint about the truss, then
+// the wing's own gimbal about its length.
+const DETAIL_MODEL_SPAN = 10.1;
+const DETAIL_MODEL_AXIS = new THREE.Vector3(0.035, 0, 0);    // where the wings meet the truss
+let detailModelState = 'none';
+const wingCode = name => (/IROSA/.test(name) ? name.match(/[PS]\d(\d[AB])/) : name.match(/(?:^|_)(?:Array_)?([1-4][AB])(?:_|$)/))?.[1];
+
+function loadDetailedStation() {
+    if (detailModelState !== 'none' || !THREE.GLTFLoader || !THREE.DRACOLoader || COMPACT) return;
+    detailModelState = 'loading';
+    const draco = new THREE.DRACOLoader();
+    draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
+    const loader = new THREE.GLTFLoader();
+    loader.setDRACOLoader(draco);
+    loader.load('models/iss-detail.glb', gltf => {
+        const model = gltf.scene;
+        const wings = new Map();
+        model.traverse(o => {
+            if (!o.isMesh) return;
+            const m = o.material;
+            // Blended materials here are cut-outs (truss lattice, blankets): test, don't sort
+            if (m.transparent) { m.transparent = false; m.alphaTest = 0.5; m.depthWrite = true; }
+            m.side = THREE.DoubleSide;
+            m.metalness *= 0.5;            // no environment to reflect, so full metal reads black
+            o.castShadow = o.receiveShadow = true;
+            const code = wingCode(o.name) || wingCode(o.parent?.name || '');
+            if (code) (wings.get(code) || wings.set(code, []).get(code)).push(o);
+        });
+
+        // Regroup each wing under its two joints, keeping where everything is
+        model.updateMatrixWorld(true);
+        const joints = [];
+        const box = new THREE.Box3();
+        for (const [code, meshes] of wings) {
+            box.makeEmpty();
+            meshes.forEach(o => box.expandByObject(o));
+            const pivot = new THREE.Vector3(DETAIL_MODEL_AXIS.x, DETAIL_MODEL_AXIS.y, (box.min.z + box.max.z) / 2);
+            const sarj = new THREE.Group(), bga = new THREE.Group();
+            sarj.position.copy(pivot);
+            sarj.add(bga);
+            model.add(sarj);
+            model.updateMatrixWorld(true);
+            meshes.forEach(o => bga.attach(o));
+            // The port wings (2A, 4A, 2B, 4B) are modelled the other way up: turn
+            // them over so every wing shows its cells to the sun
+            joints.push({ sarj, bga, flip: /^[24]/.test(code) ? Math.PI : 0 });
+        }
+
+        // Model space → station space (with the reflection), scaled to the light model's size
+        const frame = new THREE.Group();
+        const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(-1, 0, 0));
+        frame.matrixAutoUpdate = false;
+        frame.matrix.copy(basis).scale(new THREE.Vector3().setScalar(STATION_SPAN / DETAIL_MODEL_SPAN));
+        model.position.copy(DETAIL_MODEL_AXIS).negate();
+        frame.add(model);
+
+        // Face each wing to the sun: normal = Rz(alpha)·Rx(beta)·z
+        const toModel = basis.clone().transpose(), local = new THREE.Vector3();
+        frame.userData.track = s => {
+            local.copy(s).applyMatrix4(toModel);
+            const alpha = Math.atan2(local.x, -local.y), beta = Math.acos(THREE.MathUtils.clamp(local.z, -1, 1));
+            for (const j of joints) { j.sarj.rotation.z = alpha; j.bga.rotation.x = beta + j.flip; }
+        };
+
+        station.remove(stationModel);
+        stationModel = frame;
+        station.add(frame);
+        detailModelState = 'ready';
+        draco.dispose();
+    }, undefined, e => { detailModelState = 'failed'; console.warn('Detailed ISS model unavailable', e); });
+}
+
 // ─── THE CUPOLA ──────────────────────────────────────────────────────────────
 // The seven-window observation dome, built in 3D around the camera for the
 // Cupola view: a round window looking straight down, ringed by six angled

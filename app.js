@@ -254,7 +254,11 @@ function zoomBy(k) {
         earthView.targetDist = THREE.MathUtils.clamp(earthView.targetDist * k, 14, 160);
         earthView.userZoomed = true;
     }
-    if (mode === 'follow') chase.targetDist = THREE.MathUtils.clamp(chase.targetDist * k, CHASE_MIN, 3);
+    if (mode === 'follow') {
+        chase.targetDist = THREE.MathUtils.clamp(chase.targetDist * k, CHASE_MIN, 3);
+        // Close in, fetch the detailed station (desktop GPUs only; it's ~2M triangles)
+        if (chase.targetDist < CHASE_DEFAULT * 0.6 && qualityTier >= 2) loadDetailedStation();
+    }
     if (mode === 'cupola') cupola.targetFov = THREE.MathUtils.clamp(cupola.targetFov * k, 20, 90);   // a zoom lens
 }
 const spread = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
