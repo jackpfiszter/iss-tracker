@@ -226,10 +226,78 @@ function buildCupola() {
     return rig;
 }
 const cupolaRig   = buildCupola();
-const cabinLight  = new THREE.PointLight(srgb(0xffeedd), 0, 0.45, 2);
+const cabinLight  = new THREE.PointLight(srgb(0xffeedd), 0, 0.6, 2);
 scene.add(cabinLight);
 const CUPOLA_BASIS = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, -1, 0));
 const _cupolaQ = new THREE.Quaternion().setFromRotationMatrix(CUPOLA_BASIS);
+
+// ─── THE REAL CUPOLA ─────────────────────────────────────────────────────────
+// NASA's model of the station's interior has the Cupola as built: the
+// bolted window frames, handrails and the robotics workstation's controls
+// (cut out into models/cupola.glb, ~0.7 MB).
+// It replaces the simple dome once loaded. Model axes: y = zenith, z along
+// Node 3; 1 unit ≈ 14 cm. The eye sits just inside the dome's base, where
+// an astronaut's head would be.
+const CUPOLA_EYE   = new THREE.Vector3(0, -20.5, -98.04);
+const CUPOLA_SCALE = CUPOLA.base / 10.35;            // the dome's radius, matched to the simple one
+function cupolaMaterial(m) {
+    const tex = (m.name === 'Cupola_Diffuse' || m.name === 'Generic_HubAndMetals');
+    const out = new THREE.MeshStandardMaterial({
+        map: m.map, normalMap: m.normalMap, color: tex ? 0xffffff : srgb(0xb9bcc0),
+        // The converted model came out uniformly shiny; real cabin surfaces are matte
+        metalness: m.name === 'Generic_HubAndMetals' ? 0.55 : 0.05,
+        roughness: m.name === 'Generic_HubAndMetals' ? 0.45 : 0.8,
+        alphaTest: m.map ? 0.5 : 0, side: THREE.DoubleSide,
+    });
+    if (out.normalMap) out.normalScale.set(0.6, 0.6);
+    return out;
+}
+function loadCupola() {
+    if (!THREE.GLTFLoader || !THREE.DRACOLoader) return;
+    const draco = new THREE.DRACOLoader();
+    draco.setDecoderPath('https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/libs/draco/');
+    const loader = new THREE.GLTFLoader();
+    loader.setDRACOLoader(draco);
+    loader.load('models/cupola.glb', gltf => {
+        const materials = new Map();
+        gltf.scene.traverse(o => {
+            if (!o.isMesh) return;
+            if (o.material.name === 'Cupola_Diffuse' && o.material.map) cupolaAlpha = readAlpha(o.material.map.image);
+            if (!materials.has(o.material.name)) materials.set(o.material.name, cupolaMaterial(o.material));
+            o.material = materials.get(o.material.name);
+            o.castShadow = o.receiveShadow = true;
+        });
+        // Model space → the rig's (x = port, y = forward, z = nadir)
+        const frame = new THREE.Group();
+        frame.matrixAutoUpdate = false;
+        frame.matrix.makeBasis(new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, -1), new THREE.Vector3(1, 0, 0))
+            .scale(new THREE.Vector3().setScalar(CUPOLA_SCALE));
+        gltf.scene.position.copy(CUPOLA_EYE).negate();
+        frame.add(gltf.scene);
+        cupolaRig.children.slice().forEach(c => cupolaRig.remove(c));
+        cupolaRig.add(frame);
+        draco.dispose();
+    }, undefined, e => console.warn('Cupola model unavailable; using the simple one', e));
+}
+loadCupola();
+
+// The window panes are cut out of the cabin by its texture's alpha, which a
+// raycast can't see, so the sun check looks it up
+let cupolaAlpha = null;
+function readAlpha(image) {
+    const c = document.createElement('canvas');
+    c.width = image.width;
+    c.height = image.height;
+    const g = c.getContext('2d', { willReadFrequently: true });
+    g.drawImage(image, 0, 0);
+    return { w: c.width, h: c.height, data: g.getImageData(0, 0, c.width, c.height).data };
+}
+function solidAt(hit) {
+    if (!hit.object.material.map || !cupolaAlpha || !hit.uv) return true;
+    const { w, h, data } = cupolaAlpha;
+    const x = Math.floor((hit.uv.x - Math.floor(hit.uv.x)) * w), y = Math.floor((hit.uv.y - Math.floor(hit.uv.y)) * h);
+    return data[(y * w + x) * 4 + 3] >= 128;
+}
 
 // Does the Cupola's frame block the line of sight to the sun? (for the lens flare)
 const _sunRay = new THREE.Raycaster();
@@ -237,7 +305,7 @@ function cupolaBlocksSun() {
     if (!cupolaRig.visible) return false;
     _sunRay.set(camera.position, sunDir);
     _sunRay.far = 1;
-    return _sunRay.intersectObjects(cupolaRig.children, false).length > 0;
+    return _sunRay.intersectObjects(cupolaRig.children, true).some(solidAt);
 }
 
 // ─── NAVIGATION LIGHTS ───────────────────────────────────────────────────────
@@ -312,7 +380,7 @@ function updateStation(live, close, far, elapsed, dt, riding, inside) {
     // Inside the Cupola: place the dome on the station, light the cabin, and
     // widen the sun's shadow box to take in the whole dome
     cupolaRig.visible = inside;
-    cabinLight.intensity = inside ? 0.35 : 0;
+    cabinLight.intensity = inside ? 1.2 : 0;
     if (inside) {
         cupolaRig.position.copy(p);
         cupolaRig.quaternion.copy(station.quaternion).multiply(_cupolaQ);

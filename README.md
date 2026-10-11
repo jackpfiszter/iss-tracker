@@ -20,7 +20,7 @@ Then open http://localhost:8765. Opening `index.html` straight from disk won't w
 | --- | --- | --- |
 | `1` | **Earth** | The whole planet, with a label on the ISS. Left alone, the view eases round to keep the ISS in frame. |
 | `2` / `F` | **Ride along** | A chase camera behind a 3D ISS whose solar arrays track the sun. Drag to look around, scroll to pull back. |
-| `3` / `C` | **Cupola** | Inside the station's seven-window Cupola, a 3D dome lit by the real sun (light falls through the windows onto the frames). Drag to look around, scroll to zoom the lens. |
+| `3` / `C` | **Cupola** | Inside the station's seven-window Cupola, the real one from NASA's interior model (bolted frames, handrails, the robotics workstation's controls), lit by the real sun through the windows. Drag to look around, scroll to zoom the lens. |
 | `4` | **My sky** | Flies to your location and draws the next visible pass on the ground and on a sky chart. |
 
 `R` or `Esc` returns to the Earth view. Drag (or one finger) rotates, scroll (or pinch) zooms.
@@ -83,6 +83,7 @@ Add `?t=<minutes>` to the URL to shift the clock, e.g. `?t=30` to see the ISS in
 - Aurora: [NOAA SWPC](https://www.swpc.noaa.gov/products/aurora-30-minute-forecast) 30-minute forecast
 - Stars: the [Yale Bright Star Catalogue](https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50), 5th edition, trimmed to position, magnitude and colour in `data/stars.json`
 - ISS model: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) (International Space Station B), in `models/`
+- Cupola interior: [NASA 3D Resources](https://github.com/nasa/NASA-3D-Resources) (International Space Station E, Internal), cut down to the Cupola in `models/cupola.glb`
 - Relief, ocean mask, stock clouds and the moon: the [three.js](https://github.com/mrdoob/three.js) example textures, loaded from jsDelivr (the globe still renders without them)
 - Country outlines: [Natural Earth](https://www.naturalearthdata.com/) 1:110m, trimmed to names and outlines in `data/`
 - News: [Spaceflight News API](https://spaceflightnewsapi.net/) (updates every 10 min)
