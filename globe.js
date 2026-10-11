@@ -295,6 +295,13 @@ const ATMOSPHERE_GLSL = `
     const float HM = 0.0024;
     const vec3  BR = vec3(2.96, 6.88, 16.9);
     const float BM = 8.0;
+    // Ozone absorbs orange and green (the Chappuis band). Straight down it
+    // barely matters, but along the long grazing path of twilight sunlight
+    // it's what turns the light blue-violet and the cloud tops pink, where
+    // Rayleigh scattering alone would leave a neutral grey. Earth's ozone
+    // column, carried on the air's density with the extra grazing length of
+    // a layer ~25 km up.
+    const vec3  BO = vec3(0.62, 1.78, 0.083) * 1.5;
     vec3 toLinear(vec3 c) { return pow(c, vec3(2.2)); }
 
     // Chapman approximation: air along a ray from height h (in scale heights)
@@ -309,10 +316,17 @@ const ATMOSPHERE_GLSL = `
         float h  = r - RG;
         float dR = HR * chapman(RG / HR, h / HR, mu);
         float dM = HM * chapman(RG / HM, h / HM, mu);
-        return BR * dR + BM * 1.1 * dM;
+        return (BR + BO) * dR + BM * 1.1 * dM;
     }
-    // Colour of sunlight that reaches the ground (reddens at the terminator)
-    vec3 sunAtGround(float mu) { return exp(-opticalToSun(RG + 0.002, mu)); }
+    // Colour of sunlight that reaches a height above the ground (reddening,
+    // then pink, then gone through the terminator)
+    vec3 sunAt(float h, float mu) { return exp(-opticalToSun(RG + h, mu)); }
+    vec3 sunAtGround(float mu) { return sunAt(0.002, mu); }
+    // Light from the sky itself: blue, a few percent of the sun's by day,
+    // fading through twilight (tinted by the sunlight that reaches the air)
+    vec3 skyLight(float mu) {
+        return vec3(0.30, 0.50, 1.0) * 0.06 * smoothstep(-0.1, 0.35, mu) * mix(vec3(1.0), sunAt(0.01, max(mu, -0.05)), 0.5);
+    }
 `;
 
 // Value noise on 3D points, for anything procedural
@@ -474,9 +488,7 @@ const earthMat = new THREE.ShaderMaterial({
             vec3  albedo = toLinear(dayTex);
             albedo = max(mix(vec3(dot(albedo, vec3(0.2126, 0.7152, 0.0722))), albedo, 1.04), 0.0);
             albedo = mix(albedo, albedo * vec3(0.7, 0.88, 1.15), texture2D(specMap, vUv).r * 0.5);
-            vec3  col    = albedo * max(dot(Np, sunDir), 0.0) * sunT * (1.0 - shadow * 0.6);
-            // A warm golden band where day meets night
-            col += vec3(1.0, 0.5, 0.2) * 0.01 * exp(-pow((d - 0.02) / 0.04, 2.0));
+            vec3  col    = albedo * (max(dot(Np, sunDir), 0.0) * sunT * (1.0 - shadow * 0.6) + skyLight(d) * (1.0 - cloud * 0.5));
 
             // Water: a sun glint that sparkles up close, and the sky reflected at low angles
             float water   = texture2D(specMap, vUv).r * (1.0 - cloud);
@@ -544,9 +556,11 @@ const cloudMat = new THREE.ShaderMaterial({
             // Thin edges glow when the sun is behind them
             float lining = pow(max(dot(-V, sunDir), 0.0), 6.0) * c * (1.0 - c) * 5.0;
 
-            // Cloud tops catch the sun a little past the ground terminator
-            vec3 sunT  = sunAtGround(d + 0.03);
-            vec3 day   = sunT * (vec3(0.93) * clamp((d + 0.06) / 1.06, 0.0, 1.0) * lit + lining);
+            // Cloud tops (~10 km up) still catch the sun past the ground's
+            // terminator, through the most air: orange, then pink. Light also
+            // diffuses through a cloud, so it doesn't fall off as a hard cosine.
+            vec3 sunT  = sunAt(0.008, d);
+            vec3 day   = sunT * (vec3(0.93) * clamp((d + 0.08) / 1.08, 0.0, 1.0) * lit + lining) + skyLight(d) * 1.4;
             vec3 night = vec3(0.01, 0.016, 0.035) * (0.5 + 3.0 * moonLight * max(dot(N, moonDir), 0.0));
 
             // Lightning in deep storm clouds on the night side, mostly in the tropics
@@ -675,7 +689,7 @@ const atmosphereMat = new THREE.ShaderMaterial({
                 float r = length(p);
                 vec2 dens = exp(-(r - RG) / vec2(HR, HM)) * ds;
                 depth += dens * 0.5;
-                vec3 att = exp(-(BR * depth.x + BM * 1.1 * depth.y + opticalToSun(r, dot(p, sunDir) / r)));
+                vec3 att = exp(-((BR + BO) * depth.x + BM * 1.1 * depth.y + opticalToSun(r, dot(p, sunDir) / r)));
                 depth += dens * 0.5;
                 sumR += dens.x * att;
                 sumM += dens.y * att;
@@ -688,7 +702,7 @@ const atmosphereMat = new THREE.ShaderMaterial({
             // globe, so it's thinned there; rays that only skim the air (the
             // limb) are boosted into a bright rim instead
             vec3 light = sunE * (sumR * BR * phR * (ground ? 0.65 : 1.2) + sumM * BM * phM * (ground ? 0.2 : 1.0));
-            vec3 trans = exp(-(BR * depth.x + BM * 1.1 * depth.y));
+            vec3 trans = exp(-((BR + BO) * depth.x + BM * 1.1 * depth.y));
             if (ground) trans = mix(vec3(1.0), trans, 0.65);
 
             // Airglow: a shell ~90–100 km up, only on the night side
