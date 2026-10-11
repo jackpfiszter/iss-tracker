@@ -69,10 +69,36 @@ const post = (() => {
     // Its blur buffers default to 8 bits, which steps visibly in faint glow
     for (const rt of [bloom.renderTargetBright, ...bloom.renderTargetsHorizontal, ...bloom.renderTargetsVertical]) rt.texture.type = THREE.HalfFloatType;
     const output = new THREE.FullScreenQuad(new THREE.ShaderMaterial({
-        uniforms: { tScene: { value: target.texture }, exposure: { value: EXPOSURE }, time: { value: 0 }, motion: { value: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1 } },
+        uniforms: { tScene: { value: target.texture }, exposure: { value: EXPOSURE }, time: { value: 0 }, motion: { value: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1 },
+            sunUv: { value: new THREE.Vector2() }, sunAmt: { value: 0 }, burst: { value: 1 }, aspect: { value: 1 } },
         vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
         fragmentShader: `
             uniform sampler2D tScene; uniform float exposure, time, motion; varying vec2 vUv;
+            uniform vec2 sunUv; uniform float sunAmt, burst, aspect;
+
+            // Lens flare, added in HDR before tone mapping so it sits in the image
+            // like a real camera's: a starburst from the aperture blades, a soft
+            // glow and streak, and faint ghosts mirrored through the frame centre
+            vec3 ghost(vec2 uv, vec2 c, float r, vec3 tint) {
+                float d = length((uv - c) * vec2(aspect, 1.0));
+                return tint * smoothstep(r, r * 0.7, d) * (0.45 + 0.55 * smoothstep(r * 0.3, r * 0.95, d));
+            }
+            vec3 lensFlare(vec2 uv) {
+                vec2 d  = (uv - sunUv) * vec2(aspect, 1.0);
+                float r = length(d), a = atan(d.y, d.x);
+                float rays = pow(abs(cos(a * 3.0)), 320.0) + 0.4 * pow(abs(cos(a * 3.0 + 1.5708)), 500.0);
+                vec3 col = vec3(1.0, 0.96, 0.9) * rays * exp(-r * 14.0) * 0.35 * burst;
+                col += vec3(1.0, 0.9, 0.75) * exp(-r * 22.0) * 0.3;
+                col += vec3(0.65, 0.78, 1.0) * exp(-abs(d.y) * 300.0) * exp(-abs(d.x) * 2.8) * 0.12 * burst;
+                vec2 axis = vec2(0.5) - sunUv;
+                col += ghost(uv, sunUv + axis * 0.6,  0.03,  vec3(0.4, 0.65, 1.0)) * 0.08;
+                col += ghost(uv, sunUv + axis * 1.3,  0.07,  vec3(0.5, 1.0, 0.7))  * 0.035;
+                col += ghost(uv, sunUv + axis * 1.65, 0.018, vec3(1.0, 0.65, 0.4)) * 0.1;
+                col += ghost(uv, sunUv + axis * 2.15, 0.11,  vec3(0.75, 0.55, 1.0)) * 0.022;
+                // A faint rainbow ring
+                col += vec3(exp(-pow((r - 0.27) / 0.012, 2.0)), exp(-pow((r - 0.28) / 0.012, 2.0)), exp(-pow((r - 0.29) / 0.012, 2.0))) * 0.02;
+                return col * sunAmt;
+            }
             vec3 rrtOdt(vec3 v) {
                 vec3 a = v * (v + 0.0245786) - 0.000090537;
                 vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
@@ -88,6 +114,7 @@ const post = (() => {
                 // A lens: colours fringe slightly towards the edges, and the corners fall off
                 vec2 off = (vUv - 0.5) * dot(vUv - 0.5, vUv - 0.5) * 0.006;
                 vec3 hdr = vec3(texture2D(tScene, vUv + off).r, texture2D(tScene, vUv).g, texture2D(tScene, vUv - off).b);
+                if (sunAmt > 0.001) hdr += lensFlare(vUv);
                 hdr *= mix(1.0, 0.8, smoothstep(0.4, 1.0, length(vUv - 0.5) * 1.3));
                 vec3 c = aces(hdr);
                 // Grade: ACES mutes colour, so give it back, then a gentle S-curve
@@ -132,6 +159,16 @@ function setQuality(tier) {
     resizeRenderer(viewW, viewH);
 }
 
+// Where the sun is on screen (0–1 uv), how strongly to flare, and how
+// spiky (brighter just as it clears the horizon). Only with post-processing.
+function setLensFlare(u, v, amount, spikes) {
+    if (!post) return;
+    const un = post.output.material.uniforms;
+    un.sunUv.value.set(u, v);
+    un.sunAmt.value = amount;
+    un.burst.value  = spikes;
+}
+
 function renderFrame() {
     if (!post) { renderer.render(scene, camera); return; }
     renderer.setRenderTarget(post.target);
@@ -139,6 +176,7 @@ function renderFrame() {
     if (quality.bloom) post.bloom.render(renderer, null, post.target, 0, false);
     renderer.setRenderTarget(null);
     post.output.material.uniforms.time.value = elapsedU.value;
+    post.output.material.uniforms.aspect.value = viewW / viewH;
     post.output.render(renderer);
 }
 

@@ -113,7 +113,7 @@ function issFrame(now) {
 let mode = 'earth';
 const earthView = { lat: 20, lon: -100, dist: 62, targetDist: 62, userZoomed: false, drift: 0 };
 const chase     = { yaw: 0.45, pitch: 0.18, dist: 0.26, targetDist: 0.26 };
-const cupola    = { yaw: 0, tilt: 0.55, fov: 72, targetFov: 72 };   // tilt: radians from straight down, towards yaw
+const cupola    = { yaw: 0, tilt: 0.55, fov: 80, targetFov: 80 };   // tilt: radians from straight down, towards yaw
 let flight = null;
 let lastInteraction = -Infinity;   // performance.now() of the last drag, pinch or scroll
 let homeNormal = null;
@@ -257,7 +257,7 @@ function applyLook(dx, dy) {
         chase.yaw  -= dx * 0.006;
         chase.pitch = THREE.MathUtils.clamp(chase.pitch + dy * 0.004, -0.2, 1.3);
     } else if (mode === 'cupola') {
-        const k = cupola.fov / 72;
+        const k = cupola.fov / 80;
         cupola.yaw  += dx * 0.004 * k;
         cupola.tilt  = THREE.MathUtils.clamp(cupola.tilt - dy * 0.003 * k, 0, 1.15);
     }
@@ -756,33 +756,20 @@ function updateCallout() {
     callout.style.transform = `translate3d(${x}px, ${y}px, 0)`;
 }
 
-const flare = $('flare');
+// Lens flare (drawn in globe.js's final pass) when the sun is in view up close
 let flareAlpha = 0;
 function updateFlare(dt) {
     // Sun direction ray from the camera: how close does it pass to the Earth?
     const c = camera.position, t = -c.dot(sunDir);
     const miss = t < 0 ? Infinity : c.clone().add(sunDir.clone().multiplyScalar(t)).length();
-    const vis  = THREE.MathUtils.smoothstep(miss, R, R * 1.035);
+    const vis  = THREE.MathUtils.smoothstep(miss, R, R * 1.03);
     const [x, y, z] = toScreen(c.clone().add(sunDir.clone().multiplyScalar(30)));
-    const onScreen = z < 1 && x > -300 && x < innerWidth + 300 && y > -300 && y < innerHeight + 300;
-    flareAlpha += ((onScreen && (mode === 'follow' || mode === 'cupola') && !flight ? vis : 0) - flareAlpha) * damp(6, dt);
-    flare.style.opacity = flareAlpha.toFixed(3);
-    if (flareAlpha < 0.01) return;
-    // Brightest just as the sun clears the horizon
-    const burst = 1 + 1.6 * (1 - THREE.MathUtils.smoothstep(miss, R, R * 1.08));
-    const cx = innerWidth / 2, cy = innerHeight / 2;
-    const place = (sel, k, size) => {
-        const d = flare.querySelector(sel);
-        d.style.left = (x + (cx - x) * k) + 'px';
-        d.style.top  = (y + (cy - y) * k) + 'px';
-        if (size) d.style.width = d.style.height = size + 'px';
-    };
-    place('.core', 0, 260 * burst);
-    place('.streak', 0);
-    flare.querySelector('.streak').style.width = 900 * burst + 'px';
-    place('.g1', 0.7, 70);
-    place('.g2', 1.25, 140);
-    place('.g3', 1.6, 40);
+    const onScreen = z < 1 && x > -40 && x < innerWidth + 40 && y > -40 && y < innerHeight + 40;
+    const wanted = onScreen && (mode === 'follow' || mode === 'cupola') && !flight && !cupolaBlocksSun() && live.sunlit !== false;
+    flareAlpha += ((wanted ? vis : 0) - flareAlpha) * damp(8, dt);
+    // Spikier just as the sun clears the horizon
+    const burst = 1 + 0.6 * (1 - THREE.MathUtils.smoothstep(miss, R, R * 1.08));
+    setLensFlare(x / innerWidth, 1 - y / innerHeight, flareAlpha, burst);
 }
 
 // ─── CLOUDS TOGGLE ───────────────────────────────────────────────────────────
@@ -797,52 +784,6 @@ function setClouds(on) {
 setClouds(showClouds);
 cloudsOn.value = showClouds ? 1 : 0;
 $('cloudsBtn').addEventListener('click', () => setClouds(!showClouds));
-
-// ─── CUPOLA WINDOW ───────────────────────────────────────────────────────────
-// The Cupola's seven windows from inside: a round one looking straight down,
-// ringed by six trapezoids. Drawn once per resize around (0, 0), then moved to
-// wherever the camera's centre sits on screen.
-const cupolaEl = $('cupola');
-function buildCupolaFrame() {
-    const s  = Math.min(innerWidth, innerHeight);
-    const r0 = s * 0.25, band = s * 0.04;
-    const a1 = (r0 + band) / Math.cos(Math.PI / 6), a2 = s * 0.82 / Math.cos(Math.PI / 6);
-    const hex = a => [0, 1, 2, 3, 4, 5].map(i => [a * Math.cos(i * Math.PI / 3), a * Math.sin(i * Math.PI / 3)]);
-    const poly = pts => 'M' + pts.map(([x, y]) => `${x.toFixed(1)} ${y.toFixed(1)}`).join('L') + 'Z';
-    const circle = r => `M${r} 0A${r} ${r} 0 1 0 ${-r} 0A${r} ${r} 0 1 0 ${r} 0Z`;
-    const big = 6000;
-    const inner = hex(a1), outer = hex(a2);
-    const mullions = inner.map(([x, y], i) => `M${x.toFixed(1)} ${y.toFixed(1)}L${outer[i][0].toFixed(1)} ${outer[i][1].toFixed(1)}`).join('');
-    const bolts = [...Array(16)].map((_, i) => {
-        const t = i / 16 * Math.PI * 2, r = r0 + band * 0.5;
-        return `<circle cx="${(r * Math.cos(t)).toFixed(1)}" cy="${(r * Math.sin(t)).toFixed(1)}" r="${(band * 0.09).toFixed(1)}" fill="#1c2129"/>`;
-    }).join('');
-    $('cupolaFrame').innerHTML = `
-        <defs>
-            <radialGradient id="cupMetal" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="${a2 * 1.1}">
-                <stop offset="0" stop-color="#11141a"/><stop offset="0.45" stop-color="#0b0d12"/><stop offset="1" stop-color="#040506"/>
-            </radialGradient>
-            <linearGradient id="cupGlass" x1="0" y1="0" x2="1" y2="1">
-                <stop offset="0" stop-color="#cfe0ff" stop-opacity="0.07"/><stop offset="0.5" stop-color="#cfe0ff" stop-opacity="0"/>
-            </linearGradient>
-        </defs>
-        <g id="cupolaG">
-            <path fill="url(#cupGlass)" d="${circle(r0)}${poly(outer)}${poly(inner)}" fill-rule="evenodd"/>
-            <path fill="url(#cupMetal)" fill-rule="evenodd" d="M${-big} ${-big}H${big}V${big}H${-big}Z${circle(r0)}${poly(outer)}${poly(inner)}"/>
-            <path d="${mullions}" stroke="#090b0f" stroke-width="${(band * 0.8).toFixed(1)}" stroke-linecap="butt"/>
-            <path d="${circle(r0)}${poly(inner)}${poly(outer)}" fill="none" stroke="rgba(255,255,255,0.07)" stroke-width="1.5"/>
-            ${bolts}
-        </g>`;
-    cupolaAt = '';
-}
-
-let cupolaAt = '';
-function updateCupola() {
-    const on = mode === 'cupola' && !flight;
-    if (on !== cupolaEl.classList.contains('on')) cupolaEl.classList.toggle('on', on);
-    const t = `translate(${(innerWidth / 2 + frame.ox).toFixed(1)} ${(innerHeight / 2 + frame.oy).toFixed(1)})`;
-    if (t !== cupolaAt) { cupolaAt = t; $('cupolaG')?.setAttribute('transform', t); }
-}
 
 // ─── NEWS ────────────────────────────────────────────────────────────────────
 // Spaceflight News API — free, keyless, CORS-enabled
@@ -908,7 +849,6 @@ updateNews();
 // ─── LAYOUT ──────────────────────────────────────────────────────────────────
 function layout() {
     resizeRenderer(innerWidth, innerHeight);
-    buildCupolaFrame();
     camera.aspect = innerWidth / innerHeight;
     measureFree();
     updateModeUI();
@@ -1001,7 +941,6 @@ function watchFrameRate() {
     homeRing.scale.setScalar(1 + 0.3 * (REDUCED_MOTION ? 0 : Math.sin(elapsed * 2)));
     if (live.p) updateStation(live, close, far, elapsed, dt, mode === 'follow' || !!flight, mode === 'cupola' && !flight);
     updateSpacecraft(now, far);
-    updateCupola();
     if (live.p) updateSound(live, dt);
     animatePassDot(performance.now());
 

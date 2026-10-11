@@ -156,6 +156,90 @@ function loadStation() {
 }
 loadStation();
 
+// ─── THE CUPOLA ──────────────────────────────────────────────────────────────
+// The seven-window observation dome, built in 3D around the camera for the
+// Cupola view: a round window looking straight down, ringed by six angled
+// trapezoids, in thick bevelled frames. It's lit by the real sun (with
+// shadows, so sunlight falls through the windows onto the frames), by
+// earthshine from below, and by a soft cabin light.
+// Its own frame: x = port, y = forward, z = nadir (out through the dome).
+const CUPOLA = { base: 0.15, top: 0.08, height: 0.08, window: 0.063, frame: 0.0085, depth: 0.007 };
+
+// Shrink a convex polygon by m (each edge moves inward, corners re-meet)
+function insetPolygon(pts, m) {
+    const ccw = THREE.ShapeUtils.isClockWise(pts) ? -1 : 1;
+    const edges = pts.map((a, i) => {
+        const b = pts[(i + 1) % pts.length], d = b.clone().sub(a).normalize();
+        return { p: a.clone().add(new THREE.Vector2(-d.y, d.x).multiplyScalar(m * ccw)), d };
+    });
+    return edges.map((e, i) => {
+        const k = edges[(i + edges.length - 1) % edges.length];
+        const t = ((e.p.x - k.p.x) * e.d.y - (e.p.y - k.p.y) * e.d.x) / (k.d.x * e.d.y - k.d.y * e.d.x);
+        return k.p.clone().addScaledVector(k.d, t);
+    });
+}
+
+function buildCupola() {
+    const rig = new THREE.Group();
+    const frameMat = new THREE.MeshStandardMaterial({ color: srgb(0x6a6f77), metalness: 0.25, roughness: 0.72, side: THREE.DoubleSide });
+    const extrude = { depth: CUPOLA.depth, bevelEnabled: true, bevelThickness: 0.002, bevelSize: 0.002, bevelSegments: 2, curveSegments: 48 };
+    const hex = (r, z) => [0, 1, 2, 3, 4, 5].map(i => new THREE.Vector3(r * Math.cos(i * Math.PI / 3), r * Math.sin(i * Math.PI / 3), z));
+    const base = hex(CUPOLA.base, 0), top = hex(CUPOLA.top, CUPOLA.height);
+
+    // Lay a flat panel (outline + holes, in its own 2D space) into 3D
+    const panel = (shape, origin, u, v, n) => {
+        const geo = new THREE.ExtrudeGeometry(shape, extrude);
+        geo.applyMatrix4(new THREE.Matrix4().makeBasis(u, v, n).setPosition(origin));
+        const mesh = new THREE.Mesh(geo, frameMat);
+        mesh.castShadow = mesh.receiveShadow = true;
+        rig.add(mesh);
+    };
+
+    // The end panel: a hexagon with the round window
+    const end = new THREE.Shape(top.map(p => new THREE.Vector2(p.x, p.y)));
+    end.holes.push(new THREE.Path().absarc(0, 0, CUPOLA.window, 0, Math.PI * 2, true));
+    panel(end, new THREE.Vector3(0, 0, CUPOLA.height), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1));
+
+    // Six sloping side panels, each a trapezoid with a trapezoid window
+    for (let i = 0; i < 6; i++) {
+        const A = base[i], B = base[(i + 1) % 6], C = top[(i + 1) % 6], D = top[i];
+        const u = B.clone().sub(A).normalize();
+        let n = new THREE.Vector3().crossVectors(B.clone().sub(A), D.clone().sub(A)).normalize();
+        if (n.dot(A.clone().add(B).setZ(0)) < 0) n.negate();          // point away from the dome's axis
+        const v = new THREE.Vector3().crossVectors(n, u);
+        const flat = [A, B, C, D].map(P => new THREE.Vector2(P.clone().sub(A).dot(u), P.clone().sub(A).dot(v)));
+        const shape = new THREE.Shape(flat);
+        shape.holes.push(new THREE.Path(insetPolygon(flat, CUPOLA.frame)));
+        panel(shape, A, u, v, n);
+    }
+
+    // A short wall above the base, so looking sideways shows the module, not space
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(CUPOLA.base, CUPOLA.base, 0.06, 6, 1, true), frameMat);
+    wall.rotation.x = Math.PI / 2;
+    wall.rotation.y = Math.PI / 6;
+    wall.position.z = -0.03;
+    wall.receiveShadow = true;
+    rig.add(wall);
+
+    rig.visible = false;
+    scene.add(rig);
+    return rig;
+}
+const cupolaRig   = buildCupola();
+const cabinLight  = new THREE.PointLight(srgb(0xffeedd), 0, 0.45, 2);
+scene.add(cabinLight);
+const CUPOLA_BASIS = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, -1, 0));
+const _cupolaQ = new THREE.Quaternion().setFromRotationMatrix(CUPOLA_BASIS);
+
+// Does the Cupola's frame block the line of sight to the sun? (for the lens flare)
+const _sunRay = new THREE.Raycaster();
+function cupolaBlocksSun() {
+    if (!cupolaRig.visible) return false;
+    _sunRay.set(camera.position, sunDir);
+    _sunRay.far = 1;
+    return _sunRay.intersectObjects(cupolaRig.children, false).length > 0;
+}
+
 // ─── NAVIGATION LIGHTS ───────────────────────────────────────────────────────
 // Red on the port end of the truss, green on starboard, a white strobe at the
 // front. Only shown up close, bright enough to bloom.
@@ -225,8 +309,23 @@ function updateStation(live, close, far, elapsed, dt, riding, inside) {
     nightFill.position.copy(p).addScaledVector(up, 0.3).addScaledVector(side, 0.15);
     nightFill.target.position.copy(p);
 
+    // Inside the Cupola: place the dome on the station, light the cabin, and
+    // widen the sun's shadow box to take in the whole dome
+    cupolaRig.visible = inside;
+    cabinLight.intensity = inside ? 0.35 : 0;
+    if (inside) {
+        cupolaRig.position.copy(p);
+        cupolaRig.quaternion.copy(station.quaternion).multiply(_cupolaQ);
+        cabinLight.position.copy(p).addScaledVector(up, 0.01);
+    }
+    const box = inside ? 0.2 : 0.055, cam = sunLight.shadow.camera;
+    if (cam.right !== box) {
+        Object.assign(cam, { left: -box, right: box, top: box, bottom: -box });
+        cam.updateProjectionMatrix();
+    }
+
     // Self-shadows cost a second draw of the model, so not on the lowest tier
-    if (riding && station.visible && qualityTier > 0) renderer.shadowMap.needsUpdate = true;
+    if ((riding && station.visible || inside) && qualityTier > 0) renderer.shadowMap.needsUpdate = true;
 
     const pulse = REDUCED_MOTION ? 0 : Math.sin(elapsed * 2.4);
     issGlowGeo.attributes.position.setXYZ(0, p.x, p.y, p.z);

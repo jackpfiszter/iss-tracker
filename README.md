@@ -20,7 +20,7 @@ Then open http://localhost:8765. Opening `index.html` straight from disk won't w
 | --- | --- | --- |
 | `1` | **Earth** | The whole planet, with a label on the ISS. Left alone, the view eases round to keep the ISS in frame. |
 | `2` / `F` | **Ride along** | A chase camera behind a 3D ISS whose solar arrays track the sun. Drag to look around, scroll to pull back. |
-| `3` / `C` | **Cupola** | Looking down through the station's seven-window Cupola. Drag to look around, scroll to zoom the lens. |
+| `3` / `C` | **Cupola** | Inside the station's seven-window Cupola, a 3D dome lit by the real sun (light falls through the windows onto the frames). Drag to look around, scroll to zoom the lens. |
 | `4` | **My sky** | Flies to your location and draws the next visible pass on the ground and on a sky chart. |
 
 `R` or `Esc` returns to the Earth view. Drag (or one finger) rotates, scroll (or pinch) zooms.
@@ -65,7 +65,7 @@ The app downloads the ISS's current orbital elements (a TLE) and uses [satellite
 - **Art direction:** lightly tuned for looks while staying close to real photos. Haze over the ground is thinned and the limb slightly boosted, a faint halo surrounds the planet from far away, oceans are a touch deeper, the night side keeps its continents faintly moonlit with warm city lights, and a light grade restores some of the colour filmic tone mapping takes out.
 - **The station:** NASA's 3D model of the ISS, with solar arrays that turn to face the sun, blue earthshine from below, its own shadows up close, and sunlight that reddens and fades as it passes through the atmosphere at each orbital sunrise and sunset.
 - **Clouds and sea:** cloud tops are shaded by their own relief and cast shadows away from the sun; up close their edges break into cumulus puffs. The sun's glint sparkles on the sea, and up close (Ride along, Cupola) the odd lightning strike lights up storm clouds on the night side (not with reduced motion).
-- **Camera:** a slow handheld drift in Ride along, and a lens finish (vignette, faint grain, slight colour fringing). Up close over the sunlit Earth the stars fade, as they would for a camera.
+- **Camera:** a slow handheld drift in Ride along, a lens finish (vignette, faint grain, slight colour fringing), and a lens flare when you look towards the sun: a starburst, a faint rainbow ring and soft ghosts, rendered into the image before tone mapping. Up close over the sunlit Earth the stars fade, as they would for a camera.
 - **Close-ups:** the base Earth images are about 10 km a pixel. In Ride along, My sky or when zoomed in, `detail.js` fetches NASA tiles at up to ~500 m a pixel for the area in view (city lights on the night side), and only for the side of the terminator that needs them.
 - **Quality:** phones start at a lighter setting, and if the first seconds run slow it steps down automatically. Add `?q=low`, `?q=medium` or `?q=high` to pin it.
 
