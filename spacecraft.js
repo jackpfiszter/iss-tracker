@@ -73,14 +73,18 @@ async function loadSpacecraft(craft) {
 }
 SPACECRAFT.forEach(loadSpacecraft);
 
-// One orbit, centred on now
+// One orbit, centred on now. The Earth's turn is frozen at now, so this is
+// the orbit's ring in space (closed and flat), not the ground track lifted
+// up, which twists ~24° over an orbit and can't close.
 function fillCraftOrbit(craft, now) {
     const period = 2 * Math.PI / craft.satrec.no * 60000;
+    const gmst = satellite.gstime(new Date(now));
     const pos = craft.orbit.geometry.attributes.position;
     for (let i = 0; i < CRAFT_ORBIT_POINTS; i++) {
-        const s = issState(craft.satrec, new Date(now - period / 2 + period * i / CRAFT_ORBIT_POINTS));
-        if (!s) continue;
-        const v = latLonToVector3(s.lat, s.lon, altToRadius(s.alt));
+        const pv = satellite.propagate(craft.satrec, new Date(now - period / 2 + period * i / CRAFT_ORBIT_POINTS));
+        if (!pv.position) continue;
+        const geo = satellite.eciToGeodetic(pv.position, gmst);
+        const v = latLonToVector3(geo.latitude / DEG, wrapLon(geo.longitude / DEG), altToRadius(geo.height));
         pos.setXYZ(i, v.x, v.y, v.z);
     }
     pos.needsUpdate = true;
@@ -99,7 +103,7 @@ function updateSpacecraft(now, far) {
         craft.p.copy(latLonToVector3(s.lat, s.lon, altToRadius(s.alt)));
         craft.glow.geometry.attributes.position.setXYZ(0, craft.p.x, craft.p.y, craft.p.z);
         craft.glow.geometry.attributes.position.needsUpdate = true;
-        if (Math.abs(now - craft.pathAt) > 60000) { fillCraftOrbit(craft, now.getTime()); craft.pathAt = now.getTime(); }
+        if (Math.abs(now - craft.pathAt) > 10000) { fillCraftOrbit(craft, now.getTime()); craft.pathAt = now.getTime(); }
 
         const vis = showMode ? far : 0;
         craft.glow.material.opacity  += (vis * (s.sunlit ? 0.9 : 0.35) - craft.glow.material.opacity) * 0.1;

@@ -234,11 +234,15 @@ function detailTexture() {
     return t;
 }
 const detailUniforms = {};
-// Sharp live cloud tiles (cloudtiles.js): one window of geostationary
-// infrared, turned into cloud cover
-const cloudDetail   = { value: detailTexture() };
-const cloudWin      = { value: new THREE.Vector4(0, 0, 1, 1) };
-const cloudDetailOn = { value: 0 };
+// Sharp live cloud tiles (cloudtiles.js): geostationary infrared turned into
+// cloud cover, in two windows of the same data. The wide one (~8 km a pixel,
+// most of the visible hemisphere) rarely changes; the near one sharpens the
+// view up close. When the near one reloads, the wide one shows the same
+// clouds underneath, so nothing jumps.
+const cloudLayers = {
+    cloudWide: { value: detailTexture() }, cloudWideWin: { value: new THREE.Vector4(0, 0, 1, 1) }, cloudWideOn: { value: 0 },
+    cloudNear: { value: detailTexture() }, cloudNearWin: { value: new THREE.Vector4(0, 0, 1, 1) }, cloudNearOn: { value: 0 },
+};
 
 for (let i = 0; i < DETAIL_LAYER_COUNT; i++) {
     detailUniforms['detailDay' + i]   = { value: detailTexture() };
@@ -363,16 +367,20 @@ const DETAIL_GLSL = `
 // replaced by sharp satellite tiles where they've loaded. Coverage is in the
 // global map's raw units; callers remap it with cloudLevels.
 const CLOUD_GLSL = `
-    uniform sampler2D cloudMap, cloudDetail;
+    uniform sampler2D cloudMap, cloudWide, cloudNear;
     uniform vec2 cloudLevels;
-    uniform vec4 cloudWin;
-    uniform float cloudDetailOn;
-    float cloudDetailW;   // how much of the last cloudRawAt came from the sharp tiles
+    uniform vec4 cloudWideWin, cloudNearWin;
+    uniform float cloudWideOn, cloudNearOn;
+    float cloudDetailW;   // how much of the last cloudRawAt came from the satellite tiles
     float cloudRawAt(vec2 uv, vec3 n) {
-        float g = breakup(n, texture2D(cloudMap, uv).a);
-        vec4 d  = detailSample(cloudDetail, cloudWin, cloudDetailOn, vec2(uv.x * 360.0 - 180.0, uv.y * 180.0 - 90.0));
-        cloudDetailW = d.a;
-        return mix(g, cloudLevels.x + pow(d.r, 1.3) * (cloudLevels.y - cloudLevels.x), d.a);
+        vec2 ll = vec2(uv.x * 360.0 - 180.0, uv.y * 180.0 - 90.0);
+        float g  = breakup(n, texture2D(cloudMap, uv).a);
+        vec4 w   = detailSample(cloudWide, cloudWideWin, cloudWideOn, ll);
+        vec4 d   = detailSample(cloudNear, cloudNearWin, cloudNearOn, ll);
+        float sat = mix(w.r, d.r, d.a);                     // sharp where loaded, wide underneath
+        float wt  = max(w.a, d.a);
+        cloudDetailW = wt;
+        return mix(g, cloudLevels.x + pow(sat, 1.3) * (cloudLevels.y - cloudLevels.x), wt);
     }
 `;
 
@@ -399,8 +407,8 @@ const WORLD_VERT = `
 const earthMat = new THREE.ShaderMaterial({
     uniforms: Object.assign({
         sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudShift, cloudLevels, cloudsOn, closeUp, time: elapsedU,
-        dayMap, nightMap, normalMap, specMap, cloudMap, cloudDetail, cloudWin, cloudDetailOn,
-    }, detailUniforms),
+        dayMap, nightMap, normalMap, specMap, cloudMap,
+    }, detailUniforms, cloudLayers),
     defines: { DETAIL: DETAIL_LAYER_COUNT, DETAIL_N: DETAIL_TILES.toFixed(1) },
     vertexShader: WORLD_VERT,
     fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + DETAIL_GLSL + CLOUD_GLSL + `
@@ -503,7 +511,7 @@ const earthMat = new THREE.ShaderMaterial({
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(R, 192, 144), earthMat));
 
 const cloudMat = new THREE.ShaderMaterial({
-    uniforms: { sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudMap, cloudDetail, cloudWin, cloudDetailOn, cloudShift, cloudLevels, cloudsOn, closeUp, lightningOn, time: elapsedU },
+    uniforms: Object.assign({ sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudMap, cloudShift, cloudLevels, cloudsOn, closeUp, lightningOn, time: elapsedU }, cloudLayers),
     defines: { DETAIL_N: DETAIL_TILES.toFixed(1) },
     vertexShader: WORLD_VERT,
     fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + DETAIL_GLSL + CLOUD_GLSL + `
