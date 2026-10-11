@@ -672,9 +672,13 @@ function tickUI(now) {
     $('alt').textContent = live.alt.toFixed(1) + ' km';
     $('lat').textContent = fmt.lat(live.lat);
     $('lon').textContent = fmt.lon(live.lon);
-    $('sunText').textContent = live.sunlit ? 'in sunlight' : 'in Earth’s shadow';
+    // From 420 km up the ISS stays in sunlight for a while after the ground
+    // below has had sunset (and gets it before the ground's sunrise), so say
+    // so rather than "sunlit" over a dark planet
+    const nightBelow = live.sunlit && sunElevation(live, now) < -1;
+    $('sunText').textContent = !live.sunlit ? 'in Earth’s shadow' : nightBelow ? 'in sunlight above the night side' : 'in sunlight';
     $('tagAlt').textContent = Math.round(live.alt) + ' km up';
-    $('tagSun').textContent = live.sunlit ? 'sunlit' : 'in shadow';
+    $('tagSun').textContent = !live.sunlit ? 'in shadow' : nightBelow ? 'sunlit, night below' : 'sunlit';
     $('travelled').textContent = fmt.int.format(travelled) + ' km';
     document.body.dataset.phase = live.sunlit ? 'day' : 'night';
 
