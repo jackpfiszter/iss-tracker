@@ -70,10 +70,29 @@ const post = (() => {
     for (const rt of [bloom.renderTargetBright, ...bloom.renderTargetsHorizontal, ...bloom.renderTargetsVertical]) rt.texture.type = THREE.HalfFloatType;
     const output = new THREE.FullScreenQuad(new THREE.ShaderMaterial({
         uniforms: { tScene: { value: target.texture }, exposure: { value: EXPOSURE }, time: { value: 0 }, motion: { value: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1 },
-            sunUv: { value: new THREE.Vector2() }, sunAmt: { value: 0 }, burst: { value: 1 }, aspect: { value: 1 } },
-        vertexShader: `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+            sunUv: { value: new THREE.Vector2() }, sunAmt: { value: 0 }, burst: { value: 1 }, aspect: { value: 1 }, sunTap: { value: new THREE.Vector2(0.003, 0.005) } },
+        // How much of the sun is actually visible, read from the rendered scene
+        // (its core is ~10× brighter than anything it lights): whatever is in
+        // front of it, the station, a Cupola frame, the Earth or the Moon, hides
+        // the flare, partly as it slides across. Once per frame, in the vertex shader.
+        vertexShader: `
+            uniform sampler2D tScene; uniform vec2 sunUv, sunTap; uniform float sunAmt;
+            varying vec2 vUv; varying float vSunSeen;
+            void main() {
+                vUv = uv;
+                float seen = 0.0;
+                if (sunAmt > 0.001) {
+                    for (int i = 0; i < 16; i++) {
+                        float a = float(i) * 2.39996, r = sqrt((float(i) + 0.5) / 16.0);
+                        vec3 c = texture2D(tScene, sunUv + vec2(cos(a), sin(a)) * r * sunTap).rgb;   // (no mips in a vertex shader)
+                        seen += step(4.0, dot(c, vec3(0.2126, 0.7152, 0.0722)));
+                    }
+                }
+                vSunSeen = seen / 16.0;
+                gl_Position = vec4(position.xy, 0.0, 1.0);
+            }`,
         fragmentShader: `
-            uniform sampler2D tScene; uniform float exposure, time, motion; varying vec2 vUv;
+            uniform sampler2D tScene; uniform float exposure, time, motion; varying vec2 vUv; varying float vSunSeen;
             uniform vec2 sunUv; uniform float sunAmt, burst, aspect;
 
             // Lens flare, added in HDR before tone mapping so it sits in the image
@@ -97,7 +116,7 @@ const post = (() => {
                 col += ghost(uv, sunUv + axis * 2.15, 0.11,  vec3(0.75, 0.55, 1.0)) * 0.022;
                 // A faint rainbow ring
                 col += vec3(exp(-pow((r - 0.27) / 0.012, 2.0)), exp(-pow((r - 0.28) / 0.012, 2.0)), exp(-pow((r - 0.29) / 0.012, 2.0))) * 0.02;
-                return col * sunAmt;
+                return col * sunAmt * vSunSeen;
             }
             vec3 rrtOdt(vec3 v) {
                 vec3 a = v * (v + 0.0245786) - 0.000090537;
@@ -114,7 +133,7 @@ const post = (() => {
                 // A lens: colours fringe slightly towards the edges, and the corners fall off
                 vec2 off = (vUv - 0.5) * dot(vUv - 0.5, vUv - 0.5) * 0.006;
                 vec3 hdr = vec3(texture2D(tScene, vUv + off).r, texture2D(tScene, vUv).g, texture2D(tScene, vUv - off).b);
-                if (sunAmt > 0.001) hdr += lensFlare(vUv);
+                if (sunAmt * vSunSeen > 0.001) hdr += lensFlare(vUv);
                 hdr *= mix(1.0, 0.8, smoothstep(0.4, 1.0, length(vUv - 0.5) * 1.3));
                 vec3 c = aces(hdr);
                 // Grade: ACES mutes colour, so give it back, then a gentle S-curve
@@ -177,6 +196,8 @@ function renderFrame() {
     renderer.setRenderTarget(null);
     post.output.material.uniforms.time.value = elapsedU.value;
     post.output.material.uniforms.aspect.value = viewW / viewH;
+    // The sun's bright core is ~4 px across: sample within that
+    post.output.material.uniforms.sunTap.value.set(4 / viewW, 4 / viewH);
     post.output.render(renderer);
 }
 
@@ -234,15 +255,8 @@ function detailTexture() {
     return t;
 }
 const detailUniforms = {};
-// Sharp live cloud tiles (cloudtiles.js): geostationary infrared turned into
-// cloud cover, in two windows of the same data. The wide one (~8 km a pixel,
-// most of the visible hemisphere) rarely changes; the near one sharpens the
-// view up close. When the near one reloads, the wide one shows the same
-// clouds underneath, so nothing jumps.
-const cloudLayers = {
-    cloudWide: { value: detailTexture() }, cloudWideWin: { value: new THREE.Vector4(0, 0, 1, 1) }, cloudWideOn: { value: 0 },
-    cloudNear: { value: detailTexture() }, cloudNearWin: { value: new THREE.Vector4(0, 0, 1, 1) }, cloudNearOn: { value: 0 },
-};
+// How much thin cloud is broken into patches (weather.js sets it per map)
+const cloudBreakup = { value: 1 };
 
 for (let i = 0; i < DETAIL_LAYER_COUNT; i++) {
     detailUniforms['detailDay' + i]   = { value: detailTexture() };
@@ -377,29 +391,15 @@ const DETAIL_GLSL = `
         }
 `;
 
-// Cloud cover at a point: the global live map, with thin cloud broken up,
-// replaced by sharp satellite tiles where they've loaded. Coverage is in the
-// global map's raw units; callers remap it with cloudLevels.
+// Cloud cover at a point: the global live map, with thin cloud broken up.
+// Coverage is in the map's raw units; callers remap it with cloudLevels.
 const CLOUD_GLSL = `
-    uniform sampler2D cloudMap, cloudWide, cloudNear;
+    uniform sampler2D cloudMap;
     uniform vec2 cloudLevels;
-    uniform vec4 cloudWideWin, cloudNearWin;
-    uniform float cloudWideOn, cloudNearOn;
-    float cloudDetailW;   // how much of the last cloudRawAt came from the satellite tiles
+    uniform float cloudBreakup;
     float cloudRawAt(vec2 uv, vec3 n) {
-        vec2 ll = vec2(uv.x * 360.0 - 180.0, uv.y * 180.0 - 90.0);
-        float g  = breakup(n, texture2D(cloudMap, uv).a);
-        vec4 w   = detailSample(cloudWide, cloudWideWin, cloudWideOn, ll);
-        vec4 d   = detailSample(cloudNear, cloudNearWin, cloudNearOn, ll);
-        float sat = pow(mix(w.r, d.r, d.a), 1.3);           // sharp where loaded, wide underneath
-        // Infrared alone reads cold clear ground (high plateaus, Siberia in
-        // autumn) as cloud, so the tiles may sharpen or clear the global
-        // map's cloud but not lay a blanket where it has none nearby
-        float around = clamp((texture2D(cloudMap, uv, 3.0).a - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
-        sat = min(sat, around * 1.6 + 0.12);
-        float wt  = max(w.a, d.a);
-        cloudDetailW = wt;
-        return mix(g, cloudLevels.x + sat * (cloudLevels.y - cloudLevels.x), wt);
+        float raw = texture2D(cloudMap, uv).a;
+        return mix(raw, breakup(n, raw), cloudBreakup);
     }
 `;
 
@@ -427,7 +427,8 @@ const earthMat = new THREE.ShaderMaterial({
     uniforms: Object.assign({
         sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudShift, cloudLevels, cloudsOn, closeUp, time: elapsedU,
         dayMap, nightMap, normalMap, specMap, cloudMap,
-    }, detailUniforms, cloudLayers),
+        cloudBreakup,
+    }, detailUniforms),
     defines: { DETAIL: DETAIL_LAYER_COUNT, DETAIL_N: DETAIL_TILES.toFixed(1) },
     vertexShader: WORLD_VERT,
     fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + DETAIL_GLSL + CLOUD_GLSL + `
@@ -528,7 +529,7 @@ const earthMat = new THREE.ShaderMaterial({
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(R, 192, 144), earthMat));
 
 const cloudMat = new THREE.ShaderMaterial({
-    uniforms: Object.assign({ sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudMap, cloudShift, cloudLevels, cloudsOn, closeUp, lightningOn, time: elapsedU }, cloudLayers),
+    uniforms: Object.assign({ sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudMap, cloudShift, cloudLevels, cloudBreakup, cloudsOn, closeUp, lightningOn, time: elapsedU }),
     defines: { DETAIL_N: DETAIL_TILES.toFixed(1) },
     vertexShader: WORLD_VERT,
     fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + DETAIL_GLSL + CLOUD_GLSL + `
@@ -545,8 +546,7 @@ const cloudMat = new THREE.ShaderMaterial({
             float near = closeUp * (1.0 - smoothstep(0.5, 1.5, length(cameraPosition - vPos)));
             if (near > 0.0) {
                 float puffs = noise3(N * 900.0) * 0.5 + noise3(N * 2300.0) * 0.3 + noise3(N * 5600.0) * 0.2;
-                // (less where real satellite tiles already give the detail; enough to round off their pixels)
-                raw += (puffs - 0.5) * 0.45 * near * smoothstep(0.02, 0.35, raw) * (1.0 - 0.6 * cloudDetailW);
+                raw += (puffs - 0.5) * 0.45 * near * smoothstep(0.02, 0.35, raw);
             }
             float c = clamp((raw - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
 

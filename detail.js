@@ -179,7 +179,7 @@ function planDetail() {
     const useful   = pixelDeg < BASE_TEXEL_DEG * 0.8;
     // Level whose texels match a screen pixel at the view centre
     const zNeed = Math.log2(288 / (DETAIL_TILE_PX * pixelDeg));
-    Object.assign(detailView, { lat, lon, zNeed });   // shared with cloudtiles.js
+    Object.assign(detailView, { lat, lon, zNeed });
 
     const recheck = performance.now() - detailCheckedAt > 30000;   // the terminator moves
     if (recheck) detailCheckedAt = performance.now();

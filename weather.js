@@ -1,12 +1,18 @@
 // ─── LIVE WEATHER ────────────────────────────────────────────────────────────
-// Real cloud cover from the last few hours (EUMETSAT satellite data, made
-// into a global map every 3 hours by matteason/live-cloud-maps) and NOAA's
-// 30-minute aurora forecast. Both fail quietly: the globe keeps the stock
-// clouds and simply shows no aurora.
+// Real cloud cover from the last half hour (our own global map from the five
+// geostationary weather satellites, built by tools/clouds; failing that,
+// matteason/live-cloud-maps' 3-hourly one) and NOAA's 30-minute aurora
+// forecast. Both fail quietly: the globe keeps the stock clouds and simply
+// shows no aurora.
 
 const CLOUDS_URL = `https://clouds.matteason.co.uk/images/${COMPACT ? '2048x1024' : '4096x2048'}/clouds-alpha.png`;
 const AURORA_URL = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
 const CLOUD_PERIOD_MS = 3 * 3600 * 1000;
+// Served by GitHub Pages with the site (and to anywhere else, for local testing)
+const OWN_CLOUDS       = 'https://jackpfiszter.github.io/iss-tracker/clouds/';
+const OWN_CLOUDS_STALE = 3 * 3600 * 1000;
+const OWN_CLOUD_LEVELS = [0.04, 0.9];
+const OWN_CLOUD_BREAKUP = 0.35;
 
 let cloudsLive = false;   // true once the real cloud map is showing (so app.js stops the drift)
 let auroraPeak = 0;       // strongest forecast value anywhere, 0–100
@@ -19,16 +25,24 @@ let auroraPeak = 0;       // strongest forecast value anywhere, 0–100
 // poles, where the map is patched together from the edges of its sources,
 // it's left as it is. Runs in a worker: a 4096×2048 map takes ~0.5 s.
 const VEIL_WORKER = `
-onmessage = async ({ data: url }) => {
+onmessage = async ({ data: { url, prebuilt } }) => {
     try {
         const r = await fetch(url);
         if (!r.ok) throw new Error(r.status);
         const bmp = await createImageBitmap(await r.blob(), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
         const W = bmp.width, H = bmp.height, cv = new OffscreenCanvas(W, H), cx = cv.getContext('2d');
         cx.drawImage(bmp, 0, 0);
-        const rgba = cx.getImageData(0, 0, W, H).data, a = new Uint8Array(W * H);
-        for (let i = 0; i < W * H; i++) a[i] = rgba[i * 4 + 3];
-        const out = removeVeil(a, W, H);
+        const rgba = cx.getImageData(0, 0, W, H).data;
+        let out;
+        if (prebuilt) {
+            // Our map is already cover, as grey: just take a channel (rows south to north)
+            out = new Uint8Array(W * H);
+            for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) out[(H - 1 - y) * W + x] = rgba[(y * W + x) * 4];
+        } else {
+            const a = new Uint8Array(W * H);
+            for (let i = 0; i < W * H; i++) a[i] = rgba[i * 4 + 3];
+            out = removeVeil(a, W, H);
+        }
         postMessage({ W, H, out }, [out.buffer]);
     } catch (e) { postMessage({ error: String(e) }); }
 };
@@ -84,10 +98,22 @@ function removeVeil(a, W, H) {
 }`;
 let veilWorker = null;
 
+// Our own map first (tools/clouds, rebuilt every 30 minutes with the site);
+// if it's missing or more than a few hours old, matteason's, cleaned up
 function loadLiveClouds() {
-    // A new URL each 3-hour update, so no cache holds on to an old map
-    const stamp = Math.floor(Date.now() / CLOUD_PERIOD_MS);
-    const url = new URL(`${CLOUDS_URL}?v=${stamp}`, location.href).href;
+    fetch(`${OWN_CLOUDS}clouds.json?v=${Math.floor(Date.now() / 300000)}`)
+        .then(r => r.ok ? r.json() : Promise.reject(new Error(r.status)))
+        .then(meta => {
+            if (Date.now() - Date.parse(meta.time) > OWN_CLOUDS_STALE) throw new Error(`map from ${meta.time}`);
+            loadCloudMap(`${OWN_CLOUDS}clouds-${COMPACT ? 4096 : 8192}.webp?v=${encodeURIComponent(meta.time)}`, true);
+        })
+        .catch(e => {
+            console.warn('Prebuilt clouds unavailable; using matteason/live-cloud-maps', e);
+            loadCloudMap(new URL(`${CLOUDS_URL}?v=${Math.floor(Date.now() / CLOUD_PERIOD_MS)}`, location.href).href, false);
+        });
+}
+
+function loadCloudMap(url, prebuilt) {
     const show = (t, levels) => {
         t.anisotropy = anisotropy;
         t.wrapS = THREE.RepeatWrapping;
@@ -97,11 +123,21 @@ function loadLiveClouds() {
         old.dispose();
         cloudsLive = true;
         cloudLevels.value.set(...levels);
+        // Ours already has real broken cloud; matteason's flattens thin cloud into a veil
+        cloudBreakup.value = prebuilt ? OWN_CLOUD_BREAKUP : 1;
         cloudShift.value = 0;
-        // Check again 20 minutes after the next update is due
-        setTimeout(loadLiveClouds, (stamp + 1) * CLOUD_PERIOD_MS - Date.now() + 20 * 60 * 1000);
+        // Ours updates every 30 minutes; matteason's every 3 hours (check 20 minutes after it's due)
+        const stamp = Math.floor(Date.now() / CLOUD_PERIOD_MS);
+        setTimeout(loadLiveClouds, prebuilt ? 30 * 60 * 1000 : (stamp + 1) * CLOUD_PERIOD_MS - Date.now() + 20 * 60 * 1000);
     };
-    // Without the worker (older browsers): the map as it comes, veil and all
+    const fail = e => {
+        if (prebuilt) {
+            console.warn('Prebuilt clouds failed to load', e);
+            return loadCloudMap(new URL(`${CLOUDS_URL}?v=${Math.floor(Date.now() / CLOUD_PERIOD_MS)}`, location.href).href, false);
+        }
+        plain(e);
+    };
+    // Without the worker (older browsers): matteason's map as it comes, veil and all
     const plain = e => {
         if (e) console.warn('Cloud clean-up unavailable; using the map as it is', e);
         const img = new Image();
@@ -115,16 +151,16 @@ function loadLiveClouds() {
     };
     try {
         veilWorker ??= new Worker(URL.createObjectURL(new Blob([VEIL_WORKER], { type: 'text/javascript' })));
-    } catch (e) { return plain(e); }
+    } catch (e) { return fail(e); }
     veilWorker.onmessage = ({ data }) => {
-        if (data.error) return plain(data.error);
+        if (data.error) return fail(data.error);
         const t = new THREE.DataTexture(data.out, data.W, data.H, THREE.AlphaFormat);
         t.magFilter = THREE.LinearFilter;
         t.minFilter = THREE.LinearMipmapLinearFilter;
         t.generateMipmaps = true;
-        show(t, [0.2, 0.8]);
+        show(t, prebuilt ? OWN_CLOUD_LEVELS : [0.2, 0.8]);
     };
-    veilWorker.postMessage(url);
+    veilWorker.postMessage({ url, prebuilt });
 }
 
 // The forecast is a 360×181 grid of [longitude 0–359, latitude −90–90,
