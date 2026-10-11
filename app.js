@@ -33,22 +33,7 @@ function formatAge(hours) {
 
 // ─── ORBIT DATA (TLE) ────────────────────────────────────────────────────────
 // Two-line elements let satellite.js compute the ISS position for any moment,
-// so everything moves smoothly and needs no further requests.
-const TLE_SOURCES = [
-    async () => {
-        const r = await fetch('https://api.wheretheiss.at/v1/satellites/25544/tles');
-        if (!r.ok) throw new Error(`wheretheiss.at ${r.status}`);
-        const { line1, line2 } = await r.json();
-        return [line1, line2];
-    },
-    async () => {
-        const r = await fetch('https://celestrak.org/NORAD/elements/gp.php?CATNR=25544&FORMAT=tle');
-        if (!r.ok) throw new Error(`CelesTrak ${r.status}`);
-        const lines = (await r.text()).split('\n').map(l => l.trim());
-        return [lines.find(l => l.startsWith('1 ')), lines.find(l => l.startsWith('2 '))];
-    },
-];
-const TLE_REFRESH = 2 * 60 * 60 * 1000;
+// so everything moves smoothly and needs no further requests (orbits.js).
 const TLE_RETRY   = 60 * 1000;
 const TLE_STALE_H = 72;
 
@@ -56,25 +41,21 @@ let satrec     = null;
 let tleFailing = false;
 
 async function loadTLE() {
-    for (const source of TLE_SOURCES) {
-        try {
-            const [line1, line2] = await source();
-            const rec = satellite.twoline2satrec(line1, line2);
-            if (rec.error || !issState(rec, clockNow())) throw new Error('unusable TLE');
-            const first = !satrec;
-            satrec     = rec;
-            tleFailing = false;
-            onOrbitData(first);
-            updateStatus();
-            setTimeout(loadTLE, TLE_REFRESH);
-            return;
-        } catch (e) {
-            console.error('TLE fetch error:', e);
-        }
+    try {
+        const entry = await getTle(25544, ['ariss', 'wheretheiss', 'celestrak']);
+        const rec = satellite.twoline2satrec(...entry.lines);
+        if (rec.error || !issState(rec, clockNow())) throw new Error('unusable TLE');
+        const first = !satrec;
+        if (first || rec.jdsatepoch !== satrec.jdsatepoch) { satrec = rec; onOrbitData(first); }
+        tleFailing = !!entry.failed;
+        updateStatus();
+        setTimeout(loadTLE, tleNextCheck(entry));
+    } catch (e) {
+        console.error('TLE fetch error:', e);
+        tleFailing = true;
+        updateStatus();
+        setTimeout(loadTLE, TLE_RETRY);
     }
-    tleFailing = true;
-    updateStatus();
-    setTimeout(loadTLE, TLE_RETRY);
 }
 
 function updateStatus() {

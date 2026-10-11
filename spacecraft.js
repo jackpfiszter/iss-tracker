@@ -40,36 +40,19 @@ for (const craft of SPACECRAFT) {
     document.getElementById('craftTags').append(craft.tag);
 }
 
-// CelesTrak first; it rate-limits busy addresses, so TLE API is the backup
-const CRAFT_TLE_SOURCES = [
-    async id => {
-        const r = await fetch(`https://celestrak.org/NORAD/elements/gp.php?CATNR=${id}&FORMAT=tle`);
-        if (!r.ok) throw new Error(`CelesTrak ${r.status}`);
-        const lines = (await r.text()).split('\n').map(l => l.trim());
-        return [lines.find(l => l.startsWith('1 ')), lines.find(l => l.startsWith('2 '))];
-    },
-    async id => {
-        const r = await fetch(`https://tle.ivanstanojevic.me/api/tle/${id}`);
-        if (!r.ok) throw new Error(`TLE API ${r.status}`);
-        const { line1, line2 } = await r.json();
-        return [line1, line2];
-    },
-];
-
+// Orbit data via orbits.js: CelesTrak first, TLE API as the backup
 async function loadSpacecraft(craft) {
-    for (const source of CRAFT_TLE_SOURCES) {
-        try {
-            const rec = satellite.twoline2satrec(...await source(craft.id));
-            if (rec.error) throw new Error('unusable TLE');
-            craft.satrec = rec;
-            craft.pathAt = 0;
-            setTimeout(() => loadSpacecraft(craft), 6 * 3600 * 1000);
-            return;
-        } catch (e) {
-            console.warn(`${craft.name} orbit:`, e.message || e);
-        }
+    try {
+        const entry = await getTle(craft.id, ['celestrak', 'tleapi']);
+        const rec = satellite.twoline2satrec(...entry.lines);
+        if (rec.error) throw new Error('unusable TLE');
+        craft.satrec = rec;
+        craft.pathAt = 0;
+        setTimeout(() => loadSpacecraft(craft), tleNextCheck(entry));
+    } catch (e) {
+        console.warn(`${craft.name} orbit:`, e.message || e);
+        setTimeout(() => loadSpacecraft(craft), 10 * 60 * 1000);
     }
-    setTimeout(() => loadSpacecraft(craft), 10 * 60 * 1000);
 }
 SPACECRAFT.forEach(loadSpacecraft);
 

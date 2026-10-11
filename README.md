@@ -44,7 +44,7 @@ On phones the card is a bottom sheet: tap or swipe it up for the tabs, and the g
 
 ## How it works
 
-The app downloads the ISS's current orbital elements (a TLE) and uses [satellite.js](https://github.com/shashwatak/satellite-js) to compute its position for any moment. That makes the marker move smoothly, draws the past and future orbit, and powers the pass predictions without polling an API. The TLE is refreshed every 2 hours; the status pill turns amber or red if it can't be refreshed or gets stale.
+The app downloads the ISS's current orbital elements (a TLE) and uses [satellite.js](https://github.com/shashwatak/satellite-js) to compute its position for any moment. That makes the marker move smoothly, draws the past and future orbit, and powers the pass predictions without polling an API. It takes the freshest elements on offer (ARISS republishes NASA's own, usually the newest), remembers them in the browser so the station appears instantly next time, and checks for new ones at most every 2 hours, in line with CelesTrak's usage policy. The status pill turns amber or red if they can't be refreshed or get stale.
 
 - `astro.js`: orbit, sun and moon maths (pure functions, no DOM)
 - `places.js`: place names from country outlines
@@ -75,7 +75,7 @@ Add `?t=<minutes>` to the URL to shift the clock, e.g. `?t=30` to see the ISS in
 
 ## Data sources
 
-- Orbital elements: [Where the ISS at?](https://wheretheiss.at/), falling back to [CelesTrak](https://celestrak.org/)
+- Orbital elements: [ARISS](https://live.ariss.org/), falling back to [Where the ISS at?](https://wheretheiss.at/) and [CelesTrak](https://celestrak.org/)
 - Earth imagery: NASA Blue Marble and Black Marble (public domain), in `textures/`
 - Close-up imagery: [NASA GIBS](https://nasa-gibs.github.io/gibs-api-docs/) (Blue Marble shaded relief and bathymetry; VIIRS city lights 2012)
 - Sharp live clouds: GOES-East, GOES-West and Himawari Band 13 infrared via [NASA GIBS](https://nasa-gibs.github.io/gibs-api-docs/), with NASA's colour scale in `data/ir-colormap.json`
