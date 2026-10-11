@@ -234,6 +234,12 @@ function detailTexture() {
     return t;
 }
 const detailUniforms = {};
+// Sharp live cloud tiles (cloudtiles.js): one window of geostationary
+// infrared, turned into cloud cover
+const cloudDetail   = { value: detailTexture() };
+const cloudWin      = { value: new THREE.Vector4(0, 0, 1, 1) };
+const cloudDetailOn = { value: 0 };
+
 for (let i = 0; i < DETAIL_LAYER_COUNT; i++) {
     detailUniforms['detailDay' + i]   = { value: detailTexture() };
     detailUniforms['detailNight' + i] = { value: detailTexture() };
@@ -334,6 +340,42 @@ const NOISE_GLSL = `
 const closeUp     = { value: 0 };
 const lightningOn = { value: matchMedia('(prefers-reduced-motion: reduce)').matches ? 0 : 1 };
 
+// Streamed tiles (terrain and clouds) live in a window of N×N tiles. Needs DETAIL_N.
+const DETAIL_GLSL = `
+        // win = (first column, first row, tile span in degrees, tiles around the globe).
+        // Tiles sit in the texture at (column mod N, row mod N) with repeat
+        // wrapping, so moving the window never shuffles loaded tiles.
+        vec4 detailSample(sampler2D map, vec4 win, float on, vec2 lonLat) {
+            float lx = mod((lonLat.x + 180.0) / win.z - win.x, win.w);
+            float ly = (90.0 - lonLat.y) / win.z - win.y;
+            vec2 uv = (vec2(mod(win.x, DETAIL_N), mod(win.y, DETAIL_N)) + vec2(lx, ly)) / DETAIL_N;
+            vec4 c  = texture2D(map, uv);
+            // Alpha from a blurrier mip ramps the blend down near tiles that
+            // haven't arrived yet, instead of a hard edge
+            float a = min(c.a, texture2D(map, uv, 4.0).a);
+            vec2 l = vec2(lx, ly) / DETAIL_N;
+            float edge = smoothstep(0.0, 0.1, l.x) * smoothstep(0.0, 0.1, 1.0 - l.x) * smoothstep(0.0, 0.1, l.y) * smoothstep(0.0, 0.1, 1.0 - l.y);
+            return vec4(c.rgb / max(c.a, 0.004), a * edge * on);
+        }
+`;
+
+// Cloud cover at a point: the global live map, with thin cloud broken up,
+// replaced by sharp satellite tiles where they've loaded. Coverage is in the
+// global map's raw units; callers remap it with cloudLevels.
+const CLOUD_GLSL = `
+    uniform sampler2D cloudMap, cloudDetail;
+    uniform vec2 cloudLevels;
+    uniform vec4 cloudWin;
+    uniform float cloudDetailOn;
+    float cloudDetailW;   // how much of the last cloudRawAt came from the sharp tiles
+    float cloudRawAt(vec2 uv, vec3 n) {
+        float g = breakup(n, texture2D(cloudMap, uv).a);
+        vec4 d  = detailSample(cloudDetail, cloudWin, cloudDetailOn, vec2(uv.x * 360.0 - 180.0, uv.y * 180.0 - 90.0));
+        cloudDetailW = d.a;
+        return mix(g, cloudLevels.x + pow(d.r, 1.3) * (cloudLevels.y - cloudLevels.x), d.a);
+    }
+`;
+
 // Each shader ends with these so the no-post fallback still tone-maps
 const OUTPUT_GLSL = `
     #include <tonemapping_fragment>
@@ -357,16 +399,14 @@ const WORLD_VERT = `
 const earthMat = new THREE.ShaderMaterial({
     uniforms: Object.assign({
         sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudShift, cloudLevels, cloudsOn, closeUp, time: elapsedU,
-        dayMap, nightMap, normalMap, specMap, cloudMap,
+        dayMap, nightMap, normalMap, specMap, cloudMap, cloudDetail, cloudWin, cloudDetailOn,
     }, detailUniforms),
     defines: { DETAIL: DETAIL_LAYER_COUNT, DETAIL_N: DETAIL_TILES.toFixed(1) },
     vertexShader: WORLD_VERT,
-    fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + `
-        uniform sampler2D dayMap, nightMap, normalMap, specMap, cloudMap;
-        float cloudRaw(vec2 uv, vec3 n) { return breakup(n, texture2D(cloudMap, uv).a); }
+    fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + DETAIL_GLSL + CLOUD_GLSL + `
+        uniform sampler2D dayMap, nightMap, normalMap, specMap;
         uniform vec3 sunDir, moonDir;
         uniform float cloudShift, moonLight, closeUp, time, cloudsOn;
-        uniform vec2 cloudLevels;
         varying vec2 vUv;
         varying vec3 vN, vPos;
 
@@ -377,21 +417,6 @@ const earthMat = new THREE.ShaderMaterial({
         uniform sampler2D detailDay1, detailNight1; uniform vec4 detailWin1; uniform float detailOn1;
         #endif
 
-        // win = (first column, first row, tile span in degrees, tiles around the globe).
-        // Tiles sit in the texture at (column mod N, row mod N) with repeat
-        // wrapping, so moving the window never shuffles loaded tiles.
-        vec4 detailSample(sampler2D map, vec4 win, float on, vec2 lonLat) {
-            float lx = mod((lonLat.x + 180.0) / win.z - win.x, win.w);
-            float ly = (90.0 - lonLat.y) / win.z - win.y;
-            vec2 uv = (vec2(mod(win.x, DETAIL_N), mod(win.y, DETAIL_N)) + vec2(lx, ly)) / DETAIL_N;
-            vec4 c  = texture2D(map, uv);
-            // Alpha from a blurrier mip ramps the blend down near tiles that
-            // haven't arrived yet, instead of a hard edge
-            float a = min(c.a, texture2D(map, uv, 4.0).a);
-            vec2 l = vec2(lx, ly) / DETAIL_N;
-            float edge = smoothstep(0.0, 0.1, l.x) * smoothstep(0.0, 0.1, 1.0 - l.x) * smoothstep(0.0, 0.1, l.y) * smoothstep(0.0, 0.1, 1.0 - l.y);
-            return vec4(c.rgb / max(c.a, 0.004), a * edge * on);
-        }
 
         // Black Marble: warm city lights over a blue moonlit base. Returns
         // (city light amount, base brightness).
@@ -427,10 +452,10 @@ const earthMat = new THREE.ShaderMaterial({
 
             float d     = dot(N, sunDir);
             // Cloud shadows fall away from the sun, further when it's low
-            float cloud  = cloudsOn * clamp((cloudRaw(vUv + vec2(cloudShift, 0.0), N) - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
+            float cloud  = cloudsOn * clamp((cloudRawAt(vUv + vec2(cloudShift, 0.0), N) - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
             float reach  = min(0.007 * sqrt(max(1.0 - d * d, 0.0)) / max(d, 0.08), 0.03);
             vec2  toSun  = tangentToUv(N, sunDir - N * d);
-            float shadow = cloudsOn * clamp((cloudRaw(vUv + vec2(cloudShift, 0.0) + toSun * reach, N) - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
+            float shadow = cloudsOn * clamp((cloudRawAt(vUv + vec2(cloudShift, 0.0) + toSun * reach, N) - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
             vec3  sunT   = sunAtGround(d);
             // Art direction: a little richer than the satellite imagery, with deeper oceans
             vec3  albedo = toLinear(dayTex);
@@ -478,12 +503,13 @@ const earthMat = new THREE.ShaderMaterial({
 scene.add(new THREE.Mesh(new THREE.SphereGeometry(R, 192, 144), earthMat));
 
 const cloudMat = new THREE.ShaderMaterial({
-    uniforms: { sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudMap, cloudShift, cloudLevels, cloudsOn, closeUp, lightningOn, time: elapsedU },
+    uniforms: { sunDir: { value: sunDir }, moonDir: { value: moonDir }, moonLight, cloudMap, cloudDetail, cloudWin, cloudDetailOn, cloudShift, cloudLevels, cloudsOn, closeUp, lightningOn, time: elapsedU },
+    defines: { DETAIL_N: DETAIL_TILES.toFixed(1) },
     vertexShader: WORLD_VERT,
-    fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + `
-        uniform sampler2D cloudMap; uniform vec3 sunDir, moonDir; uniform float cloudShift, moonLight, closeUp, lightningOn, time, cloudsOn; uniform vec2 cloudLevels;
+    fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + DETAIL_GLSL + CLOUD_GLSL + `
+        uniform vec3 sunDir, moonDir; uniform float cloudShift, moonLight, closeUp, lightningOn, time, cloudsOn;
         varying vec2 vUv; varying vec3 vN, vPos;
-        float coverage(vec2 uv, vec3 n) { return breakup(n, texture2D(cloudMap, uv + vec2(cloudShift, 0.0)).a); }
+        float coverage(vec2 uv, vec3 n) { return cloudRawAt(uv + vec2(cloudShift, 0.0), n); }
         void main() {
             vec3 N  = normalize(vN);
             vec3 V  = normalize(cameraPosition - vPos);
@@ -494,7 +520,8 @@ const cloudMat = new THREE.ShaderMaterial({
             float near = closeUp * (1.0 - smoothstep(0.5, 1.5, length(cameraPosition - vPos)));
             if (near > 0.0) {
                 float puffs = noise3(N * 900.0) * 0.5 + noise3(N * 2300.0) * 0.3 + noise3(N * 5600.0) * 0.2;
-                raw += (puffs - 0.5) * 0.45 * near * smoothstep(0.02, 0.35, raw);
+                // (less where real satellite tiles already give the detail; enough to round off their pixels)
+                raw += (puffs - 0.5) * 0.45 * near * smoothstep(0.02, 0.35, raw) * (1.0 - 0.6 * cloudDetailW);
             }
             float c = clamp((raw - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
 

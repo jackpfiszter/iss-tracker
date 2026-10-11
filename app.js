@@ -951,6 +951,7 @@ function watchFrameRate() {
 
     updateShells();
     updateDetail(dt, !flight);
+    updateCloudTiles(dt, !flight);
     updateCallout();
     updateFlare(dt);
     renderFrame();

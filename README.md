@@ -52,6 +52,7 @@ The app downloads the ISS's current orbital elements (a TLE) and uses [satellite
 - `sky.js`: stars, Milky Way, sun and moon
 - `station.js`: the ISS model, its lights and its shadows
 - `detail.js`: streams sharp NASA tiles in around the camera when it's close
+- `cloudtiles.js`: streams live 2 km satellite cloud imagery around the view (desktop)
 - `weather.js`: live cloud map and aurora forecast
 - `timemachine.js`: the shared clock (`clockNow()`) and the time machine
 - `spacecraft.js`: Tiangong and Hubble
@@ -66,6 +67,7 @@ The app downloads the ISS's current orbital elements (a TLE) and uses [satellite
 - **The station:** NASA's 3D model of the ISS, with solar arrays that turn to face the sun, blue earthshine from below, its own shadows up close, and sunlight that reddens and fades as it passes through the atmosphere at each orbital sunrise and sunset.
 - **Clouds and sea:** cloud tops are shaded by their own relief and cast shadows away from the sun; up close their edges break into cumulus puffs. Thin cloud, which the infrared-based map flattens into a grey veil, is broken back up into wispy patches. Sunglint uses a rough-water reflection model (GGX with Fresnel), so it's a broad silvery sheen whose roughness wanders like calm and choppy sea rather than a hot spot, and it sparkles up close; and up close (Ride along, Cupola) the odd lightning strike lights up storm clouds on the night side (not with reduced motion).
 - **Camera:** a slow handheld drift in Ride along, a lens finish (vignette, faint grain, slight colour fringing), and a lens flare when you look towards the sun: a starburst, a faint rainbow ring and soft ghosts, rendered into the image before tone mapping. Up close over the sunlit Earth the stars fade, as they would for a camera.
+- **Sharp live clouds:** the global cloud map is about 10 km a pixel and up to 3 hours old. On desktop, wherever GOES-East (the Americas), GOES-West (the Pacific) or Himawari (Asia and Australia) can see, their infrared images (2 km, every 10 minutes, via NASA GIBS) are streamed in around the view and turned from temperature into cloud cover, blended softly into the global map. Europe, Africa and the western Indian Ocean keep the global map. Phones skip this, as the tiles are 200–400 KB each.
 - **Close-ups:** the base Earth images are about 10 km a pixel. In Ride along, My sky or when zoomed in, `detail.js` fetches NASA tiles at up to ~500 m a pixel for the area in view (city lights on the night side), and only for the side of the terminator that needs them.
 - **Quality:** phones start at a lighter setting, and if the first seconds run slow it steps down automatically. Add `?q=low`, `?q=medium` or `?q=high` to pin it.
 
@@ -76,6 +78,7 @@ Add `?t=<minutes>` to the URL to shift the clock, e.g. `?t=30` to see the ISS in
 - Orbital elements: [Where the ISS at?](https://wheretheiss.at/), falling back to [CelesTrak](https://celestrak.org/)
 - Earth imagery: NASA Blue Marble and Black Marble (public domain), in `textures/`
 - Close-up imagery: [NASA GIBS](https://nasa-gibs.github.io/gibs-api-docs/) (Blue Marble shaded relief and bathymetry; VIIRS city lights 2012)
+- Sharp live clouds: GOES-East, GOES-West and Himawari Band 13 infrared via [NASA GIBS](https://nasa-gibs.github.io/gibs-api-docs/), with NASA's colour scale in `data/ir-colormap.json`
 - Live clouds: [live-cloud-maps](https://github.com/matteason/live-cloud-maps), updated every 3 hours. Contains modified EUMETSAT data. Falls back to a stock cloud texture.
 - Aurora: [NOAA SWPC](https://www.swpc.noaa.gov/products/aurora-30-minute-forecast) 30-minute forecast
 - Stars: the [Yale Bright Star Catalogue](https://cdsarc.cds.unistra.fr/viz-bin/cat/V/50), 5th edition, trimmed to position, magnitude and colour in `data/stars.json`
