@@ -87,19 +87,8 @@ let veilWorker = null;
 function loadLiveClouds() {
     // A new URL each 3-hour update, so no cache holds on to an old map
     const stamp = Math.floor(Date.now() / CLOUD_PERIOD_MS);
-    const retry = e => {
-        console.warn('Live clouds unavailable; using stock clouds', e);
-        setTimeout(loadLiveClouds, 15 * 60 * 1000);
-    };
-    try {
-        veilWorker ??= new Worker(URL.createObjectURL(new Blob([VEIL_WORKER], { type: 'text/javascript' })));
-    } catch (e) { return retry(e); }
-    veilWorker.onmessage = ({ data }) => {
-        if (data.error) return retry(data.error);
-        const t = new THREE.DataTexture(data.out, data.W, data.H, THREE.AlphaFormat);
-        t.magFilter = THREE.LinearFilter;
-        t.minFilter = THREE.LinearMipmapLinearFilter;
-        t.generateMipmaps = true;
+    const url = new URL(`${CLOUDS_URL}?v=${stamp}`, location.href).href;
+    const show = (t, levels) => {
         t.anisotropy = anisotropy;
         t.wrapS = THREE.RepeatWrapping;
         t.needsUpdate = true;
@@ -107,12 +96,35 @@ function loadLiveClouds() {
         cloudMap.value = t;
         old.dispose();
         cloudsLive = true;
-        cloudLevels.value.set(0.2, 0.8);
+        cloudLevels.value.set(...levels);
         cloudShift.value = 0;
         // Check again 20 minutes after the next update is due
         setTimeout(loadLiveClouds, (stamp + 1) * CLOUD_PERIOD_MS - Date.now() + 20 * 60 * 1000);
     };
-    veilWorker.postMessage(new URL(`${CLOUDS_URL}?v=${stamp}`, location.href).href);
+    // Without the worker (older browsers): the map as it comes, veil and all
+    const plain = e => {
+        if (e) console.warn('Cloud clean-up unavailable; using the map as it is', e);
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => show(new THREE.Texture(img), [0.36, 0.86]);   // levels that hide most of the veil
+        img.onerror = () => {
+            console.warn('Live clouds unavailable; using stock clouds');
+            setTimeout(loadLiveClouds, 15 * 60 * 1000);
+        };
+        img.src = url;
+    };
+    try {
+        veilWorker ??= new Worker(URL.createObjectURL(new Blob([VEIL_WORKER], { type: 'text/javascript' })));
+    } catch (e) { return plain(e); }
+    veilWorker.onmessage = ({ data }) => {
+        if (data.error) return plain(data.error);
+        const t = new THREE.DataTexture(data.out, data.W, data.H, THREE.AlphaFormat);
+        t.magFilter = THREE.LinearFilter;
+        t.minFilter = THREE.LinearMipmapLinearFilter;
+        t.generateMipmaps = true;
+        show(t, [0.2, 0.8]);
+    };
+    veilWorker.postMessage(url);
 }
 
 // The forecast is a 360×181 grid of [longitude 0–359, latitude −90–90,

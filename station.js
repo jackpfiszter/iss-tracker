@@ -179,14 +179,17 @@ function loadDetailedStation() {
     loader.setDRACOLoader(draco);
     loader.load('models/iss-detail.glb', gltf => {
         const model = gltf.scene;
-        const wings = new Map();
+        const wings = new Map(), done = new Set();
         model.traverse(o => {
             if (!o.isMesh) return;
             const m = o.material;
-            // Blended materials here are cut-outs (truss lattice, blankets): test, don't sort
-            if (m.transparent) { m.transparent = false; m.alphaTest = 0.5; m.depthWrite = true; }
-            m.side = THREE.DoubleSide;
-            m.metalness *= 0.5;            // no environment to reflect, so full metal reads black
+            if (!done.has(m)) {            // materials are shared between meshes: adjust each once
+                done.add(m);
+                // Blended materials here are cut-outs (truss lattice, blankets): test, don't sort
+                if (m.transparent) { m.transparent = false; m.alphaTest = 0.5; m.depthWrite = true; }
+                m.side = THREE.DoubleSide;
+                m.metalness *= 0.5;        // no environment to reflect, so full metal reads black
+            }
             o.castShadow = o.receiveShadow = true;
             const code = wingCode(o.name) || wingCode(o.parent?.name || '');
             if (code) (wings.get(code) || wings.set(code, []).get(code)).push(o);
@@ -206,9 +209,9 @@ function loadDetailedStation() {
             model.add(sarj);
             model.updateMatrixWorld(true);
             meshes.forEach(o => bga.attach(o));
-            // The port wings (2A, 4A, 2B, 4B) are modelled the other way up: turn
-            // them over so every wing shows its cells to the sun
-            joints.push({ sarj, bga, flip: /^[24]/.test(code) ? Math.PI : 0 });
+            // The starboard wings (1A, 3A, 1B, 3B) are modelled the other way up:
+            // turn them over so every wing shows its cells to the sun
+            joints.push({ sarj, bga, flip: /^[13]/.test(code) ? Math.PI : 0 });
         }
 
         // Model space → station space (with the reflection), scaled to the light model's size
@@ -355,6 +358,15 @@ function loadCupola() {
         frame.add(gltf.scene);
         cupolaRig.children.slice().forEach(c => cupolaRig.remove(c));
         cupolaRig.add(frame);
+        // The cut-out ends at the dome's base ring; above it, a dim tunnel up
+        // into Node 3, so looking up never shows open space
+        const base = (CUPOLA_EYE.y + 18.29) * CUPOLA_SCALE;            // rig z of the base ring (negative is up)
+        const tunnel = new THREE.Mesh(new THREE.CylinderGeometry(CUPOLA.base * 0.95, CUPOLA.base * 0.95, 0.08, 32, 1, false),
+            new THREE.MeshStandardMaterial({ color: srgb(0x34373c), metalness: 0.1, roughness: 0.9, side: THREE.BackSide }));
+        tunnel.rotation.x = Math.PI / 2;
+        tunnel.position.z = base - 0.04 + 0.003;
+        tunnel.receiveShadow = true;
+        cupolaRig.add(tunnel);
         draco.dispose();
     }, undefined, e => console.warn('Cupola model unavailable; using the simple one', e));
 }
