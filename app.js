@@ -93,7 +93,8 @@ function issFrame(now) {
 // down from the station's window  ·  sky: above home
 let mode = 'earth';
 const earthView = { lat: 20, lon: -100, dist: 62, targetDist: 62, userZoomed: false, drift: 0 };
-const chase     = { yaw: 0.45, pitch: 0.18, dist: 0.26, targetDist: 0.26 };
+const CHASE_DEFAULT = 0.26, CHASE_MIN = 0.03;   // close enough to pick out modules and handrails
+const chase     = { yaw: 0.45, pitch: 0.18, dist: CHASE_DEFAULT, targetDist: CHASE_DEFAULT };
 const cupola    = { yaw: 0, tilt: 0.55, fov: 80, targetFov: 80 };   // tilt: radians from straight down, towards yaw
 let flight = null;
 let lastInteraction = -Infinity;   // performance.now() of the last drag, pinch or scroll
@@ -135,7 +136,9 @@ function desiredView() {
             .add(fwd.clone().multiplyScalar(-Math.cos(yaw) * Math.cos(pitch)))
             .multiplyScalar(chase.dist);
         const pos    = p.clone().add(o);
-        const target = p.clone().add(p.clone().sub(pos).multiplyScalar(1.4)).sub(up.clone().multiplyScalar(0.16));
+        // Look past the station with the Earth below; the drop scales with
+        // distance, so zoomed right in the station stays framed the same way
+        const target = p.clone().add(p.clone().sub(pos).multiplyScalar(1.4)).sub(up.clone().multiplyScalar(0.16 * Math.min(1, chase.dist / CHASE_DEFAULT)));
         return { pos, target, up: up.clone(), fov: 52 };
     }
     if (mode === 'cupola' && live.p) {
@@ -218,6 +221,8 @@ function updateCamera(dt) {
     camera.lookAt(current.target);
     camera.fov  = current.fov;
     camera.near = THREE.MathUtils.clamp((current.pos.length() - R) * 0.05, 0.004, 1);
+    // Right up against the station, pull the near plane in so it isn't cut away
+    if (mode === 'follow' && live.p) camera.near = Math.min(camera.near, Math.max(0.0006, current.pos.distanceTo(live.p) * 0.08));
     camera.far  = current.pos.length() + R * 2 + SKY_RADIUS;
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();   // so labels projected this frame use this frame's camera, not the last one
@@ -249,7 +254,7 @@ function zoomBy(k) {
         earthView.targetDist = THREE.MathUtils.clamp(earthView.targetDist * k, 14, 160);
         earthView.userZoomed = true;
     }
-    if (mode === 'follow') chase.targetDist = THREE.MathUtils.clamp(chase.targetDist * k, 0.18, 3);
+    if (mode === 'follow') chase.targetDist = THREE.MathUtils.clamp(chase.targetDist * k, CHASE_MIN, 3);
     if (mode === 'cupola') cupola.targetFov = THREE.MathUtils.clamp(cupola.targetFov * k, 20, 90);   // a zoom lens
 }
 const spread = () => { const [a, b] = [...pointers.values()]; return Math.hypot(a.x - b.x, a.y - b.y) || 1; };
