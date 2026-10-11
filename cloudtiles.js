@@ -17,7 +17,7 @@ const IR_SATELLITES = [
     { layer: 'GOES-West_ABI_Band13_Clean_Infrared', lon: -137.2 },
     { layer: 'Himawari_AHI_Band13_Clean_Infrared',  lon: 140.7 },
 ];
-const IR_ENABLED   = !COMPACT;          // tiles are 200–400 KB each, too heavy for phones
+const IR_ENABLED   = false;             // off while clouds move to one prebuilt global map
 const IR_MAX_LEVEL = 5;                 // 2 km a pixel
 const IR_MIN_LEVEL = 3;
 // How far from the point under a satellite (as an angle at the Earth's
