@@ -321,9 +321,13 @@ const ATMOSPHERE_GLSL = `
     // Chapman approximation: air along a ray from height h (in scale heights)
     // with zenith cosine mu, out to space (Schüler 2012)
     float chapman(float X, float h, float mu) {
+        // (mu is clamped: a dot product of unit vectors can round past ±1,
+        // and directly opposite the sun that made sqrt(1 − mu²) a NaN, which
+        // the bloom spread into a flashing square on the night side)
+        mu = clamp(mu, -1.0, 1.0);
         float c = sqrt(X + h);
         if (mu >= 0.0) return c / (c * mu + 1.0) * exp(-h);
-        float x0 = sqrt(1.0 - mu * mu) * (X + h);
+        float x0 = max(sqrt(max(1.0 - mu * mu, 0.0)) * (X + h), 0.01);   // (and exactly opposite, still in shadow)
         return 2.0 * sqrt(x0) * exp(min(X - x0, 40.0)) - c / (1.0 - c * mu) * exp(-h);
     }
     vec3 opticalToSun(float r, float mu) {
