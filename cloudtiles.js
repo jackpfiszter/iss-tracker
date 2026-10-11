@@ -43,12 +43,14 @@ fetch('data/ir-colormap.json').then(r => r.json()).then(a => {
         irColours.set((a[i] << 16) | (a[i + 1] << 8) | a[i + 2], a[i + 3]);
         irEntries.push(a.slice(i, i + 4));
     }
-    const greys = irEntries.filter(([r, g, b]) => r === g && g === b && r > 2 && r < 255).sort((p, q) => p[0] - q[0]);
+    // A few greys also appear at the scale's very cold end (129 is listed as
+    // −76 °C, though the ramp puts it near −2 °C), which turned clear ground
+    // into specks of high cloud; within the ramp, the ramp wins
+    const greys = irEntries.filter(([r, g, b, t]) => r === g && g === b && r > 2 && r < 255 && t > -60).sort((p, q) => p[0] - q[0]);
     for (let v = greys[0][0]; v <= greys[greys.length - 1][0]; v++) {
-        const key = (v << 16) | (v << 8) | v;
-        if (irColours.has(key)) continue;
-        const hi = greys.findIndex(e => e[0] > v), lo = greys[hi - 1], up = greys[hi];
-        irColours.set(key, lo[3] + (up[3] - lo[3]) * (v - lo[0]) / (up[0] - lo[0]));
+        const hi = greys.findIndex(e => e[0] >= v), up = greys[hi], lo = greys[Math.max(0, hi - 1)];
+        const t = up[0] === v || lo === up ? up[3] : lo[3] + (up[3] - lo[3]) * (v - lo[0]) / (up[0] - lo[0]);
+        irColours.set((v << 16) | (v << 8) | v, t);
     }
 }).catch(e => console.warn('Infrared colour scale unavailable:', e));
 

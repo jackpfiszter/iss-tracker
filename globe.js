@@ -377,10 +377,15 @@ const CLOUD_GLSL = `
         float g  = breakup(n, texture2D(cloudMap, uv).a);
         vec4 w   = detailSample(cloudWide, cloudWideWin, cloudWideOn, ll);
         vec4 d   = detailSample(cloudNear, cloudNearWin, cloudNearOn, ll);
-        float sat = mix(w.r, d.r, d.a);                     // sharp where loaded, wide underneath
+        float sat = pow(mix(w.r, d.r, d.a), 1.3);           // sharp where loaded, wide underneath
+        // Infrared alone reads cold clear ground (high plateaus, Siberia in
+        // autumn) as cloud, so the tiles may sharpen or clear the global
+        // map's cloud but not lay a blanket where it has none nearby
+        float around = clamp((texture2D(cloudMap, uv, 3.0).a - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
+        sat = min(sat, around * 1.6 + 0.12);
         float wt  = max(w.a, d.a);
         cloudDetailW = wt;
-        return mix(g, cloudLevels.x + pow(sat, 1.3) * (cloudLevels.y - cloudLevels.x), wt);
+        return mix(g, cloudLevels.x + sat * (cloudLevels.y - cloudLevels.x), wt);
     }
 `;
 
