@@ -255,6 +255,24 @@ function glowTexture() {
 }
 const GLOW = glowTexture();
 
+// Map markers: a crisp bright point with only a faint halo, so they read as
+// precise positions rather than soft blobs
+function markerTexture() {
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+    grad.addColorStop(0, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.1, 'rgba(255,255,255,1)');
+    grad.addColorStop(0.16, 'rgba(255,255,255,0.3)');
+    grad.addColorStop(0.45, 'rgba(255,255,255,0.06)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grad;
+    g.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+}
+const MARKER = markerTexture();
+
 // ─── SHARED SHADER CODE ──────────────────────────────────────────────────────
 // Atmosphere constants in scene units. Scale heights are stretched 2.5× (and
 // scattering divided by the same) so the limb reads at globe scale while the
@@ -295,6 +313,14 @@ const NOISE_GLSL = `
         f = f * f * (3.0 - 2.0 * f);
         return mix(mix(mix(hash3(i), hash3(i + vec3(1, 0, 0)), f.x), mix(hash3(i + vec3(0, 1, 0)), hash3(i + vec3(1, 1, 0)), f.x), f.y),
                    mix(mix(hash3(i + vec3(0, 0, 1)), hash3(i + vec3(1, 0, 1)), f.x), mix(hash3(i + vec3(0, 1, 1)), hash3(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+    }
+    // The live map comes from infrared, which smooths thin cloud into a flat
+    // grey veil. Break thin cover into patches (thick cloud is left alone),
+    // at a scale coarse enough not to shimmer from far away.
+    float breakup(vec3 n, float raw) {
+        float w = noise3(n * 22.0);                           // warp, for swirling rather than blotchy shapes
+        float t = noise3(n * 60.0 + w * 2.5) * 0.65 + noise3(n * 150.0 + w * 1.5) * 0.35;
+        return raw * mix(1.0, 0.3 + 0.95 * smoothstep(0.2, 0.8, t), 1.0 - smoothstep(0.5, 0.85, raw));
     }
     // A direction t along the surface at unit normal n, as a step in the globe's uv
     vec2 tangentToUv(vec3 n, vec3 t) {
@@ -337,6 +363,7 @@ const earthMat = new THREE.ShaderMaterial({
     vertexShader: WORLD_VERT,
     fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + `
         uniform sampler2D dayMap, nightMap, normalMap, specMap, cloudMap;
+        float cloudRaw(vec2 uv, vec3 n) { return breakup(n, texture2D(cloudMap, uv).a); }
         uniform vec3 sunDir, moonDir;
         uniform float cloudShift, moonLight, closeUp, time, cloudsOn;
         uniform vec2 cloudLevels;
@@ -400,10 +427,10 @@ const earthMat = new THREE.ShaderMaterial({
 
             float d     = dot(N, sunDir);
             // Cloud shadows fall away from the sun, further when it's low
-            float cloud  = cloudsOn * clamp((texture2D(cloudMap, vUv + vec2(cloudShift, 0.0)).a - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
+            float cloud  = cloudsOn * clamp((cloudRaw(vUv + vec2(cloudShift, 0.0), N) - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
             float reach  = min(0.007 * sqrt(max(1.0 - d * d, 0.0)) / max(d, 0.08), 0.03);
             vec2  toSun  = tangentToUv(N, sunDir - N * d);
-            float shadow = cloudsOn * clamp((texture2D(cloudMap, vUv + vec2(cloudShift, 0.0) + toSun * reach).a - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
+            float shadow = cloudsOn * clamp((cloudRaw(vUv + vec2(cloudShift, 0.0) + toSun * reach, N) - cloudLevels.x) / (cloudLevels.y - cloudLevels.x), 0.0, 1.0);
             vec3  sunT   = sunAtGround(d);
             // Art direction: a little richer than the satellite imagery, with deeper oceans
             vec3  albedo = toLinear(dayTex);
@@ -420,8 +447,19 @@ const earthMat = new THREE.ShaderMaterial({
             float near    = closeUp * (1.0 - smoothstep(0.5, 1.5, length(cameraPosition - vPos)));
             float sparkle = 1.0;
             if (near > 0.0) sparkle = mix(1.0, 0.25 + 1.6 * noise3(N * 2600.0 + vec3(time * 0.6, 0.0, time * 0.4)), near);
-            // Kept below the bloom threshold: a soft silvery sheen, as sunglint looks from orbit, not a hot spot
-            col += sunT * vec3(1.0, 0.97, 0.92) * water * (pow(nh, 220.0) * 0.22 * sparkle + pow(nh, 40.0) * 0.035 + pow(nh, 12.0) * 0.005 * near * sparkle) * step(0.0, d);
+            // Sunglint as rough water really reflects it (GGX microfacets with
+            // Fresnel): only ~2% straight on, so it's a broad silvery sheen
+            // rather than a hot spot, brightening towards grazing angles. The
+            // roughness wanders like calm and choppy patches of sea.
+            float nl    = max(dot(N, sunDir), 0.0), nv = max(dot(N, V), 0.001);
+            float vh    = max(dot(V, normalize(sunDir + V)), 0.0);
+            float wind  = noise3(N * 18.0) * 0.6 + noise3(N * 55.0) * 0.4;
+            float alpha = mix(0.13, 0.33, wind), a2 = alpha * alpha;
+            float ggx   = a2 / (PI * pow(nh * nh * (a2 - 1.0) + 1.0, 2.0));
+            float kk    = alpha * 0.5;
+            float vis   = (nl / (nl * (1.0 - kk) + kk)) * (nv / (nv * (1.0 - kk) + kk));
+            float fres  = 0.02 + 0.98 * pow(1.0 - vh, 5.0);
+            col += sunT * vec3(0.92, 0.95, 1.0) * water * PI * ggx * vis * fres / (4.0 * nv) * sparkle * 0.55;
             float fresnel = 0.02 + 0.98 * pow(1.0 - max(dot(N, V), 0.0), 5.0);
             col += water * fresnel * vec3(0.05, 0.11, 0.24) * smoothstep(-0.1, 0.3, d);
 
@@ -445,12 +483,12 @@ const cloudMat = new THREE.ShaderMaterial({
     fragmentShader: ATMOSPHERE_GLSL + NOISE_GLSL + `
         uniform sampler2D cloudMap; uniform vec3 sunDir, moonDir; uniform float cloudShift, moonLight, closeUp, lightningOn, time, cloudsOn; uniform vec2 cloudLevels;
         varying vec2 vUv; varying vec3 vN, vPos;
-        float coverage(vec2 uv) { return texture2D(cloudMap, uv + vec2(cloudShift, 0.0)).a; }
+        float coverage(vec2 uv, vec3 n) { return breakup(n, texture2D(cloudMap, uv + vec2(cloudShift, 0.0)).a); }
         void main() {
             vec3 N  = normalize(vN);
             vec3 V  = normalize(cameraPosition - vPos);
             float d = dot(N, sunDir);
-            float raw = coverage(vUv);
+            float raw = coverage(vUv, N);
             // Up close the map is blurry: break the edges up into cumulus-sized
             // puffs, near the camera only (further off they'd just shimmer)
             float near = closeUp * (1.0 - smoothstep(0.5, 1.5, length(cameraPosition - vPos)));
@@ -462,7 +500,7 @@ const cloudMat = new THREE.ShaderMaterial({
 
             // Relief: thicker cloud towards the sun shades this side, thinner lets it light up
             vec2 toSun  = tangentToUv(N, sunDir - N * d);
-            float lit   = clamp(1.0 + (raw - coverage(vUv + toSun * 0.004)) * 2.2, 0.55, 1.25);
+            float lit   = clamp(1.0 + (raw - coverage(vUv + toSun * 0.004, N)) * 2.2, 0.55, 1.25);
             // Thin edges glow when the sun is behind them
             float lining = pow(max(dot(-V, sunDir), 0.0), 6.0) * c * (1.0 - c) * 5.0;
 

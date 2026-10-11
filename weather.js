@@ -14,7 +14,11 @@ let auroraPeak = 0;       // strongest forecast value anywhere, 0–100
 function loadLiveClouds() {
     // A new URL each 3-hour update, so no cache holds on to an old map
     const stamp = Math.floor(Date.now() / CLOUD_PERIOD_MS);
-    new THREE.TextureLoader().load(`${CLOUDS_URL}?v=${stamp}`, t => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+        const t = new THREE.Texture(img);
+        t.needsUpdate = true;
         t.anisotropy = anisotropy;
         t.wrapS = THREE.RepeatWrapping;
         const old = cloudMap.value;
@@ -25,10 +29,12 @@ function loadLiveClouds() {
         cloudShift.value = 0;
         // Check again 20 minutes after the next update is due
         setTimeout(loadLiveClouds, (stamp + 1) * CLOUD_PERIOD_MS - Date.now() + 20 * 60 * 1000);
-    }, undefined, () => {
+    };
+    img.onerror = () => {
         console.warn('Live clouds unavailable; using stock clouds');
         setTimeout(loadLiveClouds, 15 * 60 * 1000);
-    });
+    };
+    img.src = `${CLOUDS_URL}?v=${stamp}`;
 }
 
 // The forecast is a 360×181 grid of [longitude 0–359, latitude −90–90,

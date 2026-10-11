@@ -18,7 +18,7 @@ for (const craft of SPACECRAFT) {
     const glowGeo = new THREE.BufferGeometry();
     glowGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
     craft.glow = new THREE.Points(glowGeo, new THREE.PointsMaterial({
-        map: GLOW, color: srgb(craft.color).multiplyScalar(1.1), size: 20, sizeAttenuation: false,
+        map: MARKER, color: srgb(craft.color).multiplyScalar(1.1), size: 22, sizeAttenuation: false,
         transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0,
     }));
     craft.glow.renderOrder = 3;

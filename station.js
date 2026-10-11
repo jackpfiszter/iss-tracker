@@ -261,7 +261,7 @@ const ISS_GLOW = { sunlit: srgb(0xfff1cf).multiplyScalar(0.9), shadow: srgb(0x9f
 const issGlowGeo = new THREE.BufferGeometry();
 issGlowGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(3), 3));
 const issGlowMat = new THREE.PointsMaterial({
-    map: GLOW, color: ISS_GLOW.sunlit.clone(), size: 36, sizeAttenuation: false,
+    map: MARKER, color: ISS_GLOW.sunlit.clone(), size: 34, sizeAttenuation: false,
     transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0,
 });
 const issGlow = new THREE.Points(issGlowGeo, issGlowMat);
@@ -330,7 +330,7 @@ function updateStation(live, close, far, elapsed, dt, riding, inside) {
     const pulse = REDUCED_MOTION ? 0 : Math.sin(elapsed * 2.4);
     issGlowGeo.attributes.position.setXYZ(0, p.x, p.y, p.z);
     issGlowGeo.attributes.position.needsUpdate = true;
-    issGlowMat.size    = 30 * (1 + 0.15 * pulse);
+    issGlowMat.size    = 34 * (1 + 0.08 * pulse);
     issGlowMat.opacity = far * (live.sunlit ? 1 : 0.35);
     issGlowMat.color.copy(live.sunlit === false ? ISS_GLOW.shadow : ISS_GLOW.sunlit);
     navLights[0].opacity = navLights[1].opacity = close * (0.75 + 0.25 * Math.sin(elapsed * 3));
