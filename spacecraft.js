@@ -110,6 +110,9 @@ function updateSpacecraft(now, far) {
         const onScreen = z < 1 && x > 0 && x < innerWidth && y > 70 && y < sheetTop - 10 && !occluded(craft.p);
         const op = showMode && far > 0.5 && onScreen ? 1 : 0;
         if (String(op) !== craft.tag.style.opacity) craft.tag.style.opacity = op;
-        if (op) craft.tag.style.transform = `translate3d(${x.toFixed(1)}px, ${(y - 4).toFixed(1)}px, 0) translateY(-50%)`;
+        // Always follow, even while hidden or fading, so a label never fades
+        // back in at a stale spot and then jumps
+        // (behind the camera the projection mirrors, so leave it where it was)
+        if (z < 1) craft.tag.style.transform = `translate3d(${x.toFixed(1)}px, ${(y - 4).toFixed(1)}px, 0) translateY(-50%)`;
     }
 }

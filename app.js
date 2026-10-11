@@ -239,6 +239,7 @@ function updateCamera(dt) {
     camera.near = THREE.MathUtils.clamp((current.pos.length() - R) * 0.05, 0.004, 1);
     camera.far  = current.pos.length() + R * 2 + SKY_RADIUS;
     camera.updateProjectionMatrix();
+    camera.updateMatrixWorld();   // so labels projected this frame use this frame's camera, not the last one
     sky.position.copy(camera.position);
 }
 
