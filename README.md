@@ -85,6 +85,6 @@ Add `?t=<minutes>` to the URL to shift the clock, e.g. `?t=30` to see the ISS in
 - News: [Spaceflight News API](https://spaceflightnewsapi.net/) (updates every 10 min)
 - Crew: [international-space-station-APIs](https://github.com/corquaid/international-space-station-APIs) (community maintained), photos from Wikimedia Commons
 - Live video: NASA's official YouTube streams, embedded from youtube-nocookie.com. NASA occasionally restarts these streams under a new address; `LIVE_CAMS` in `livecam.js` holds the current ones, and the ↗ button opens NASA's live page.
-- Tiangong and Hubble orbits: [CelesTrak](https://celestrak.org/)
+- Tiangong and Hubble orbits: [CelesTrak](https://celestrak.org/), falling back to [TLE API](https://tle.ivanstanojevic.me/)
 
 None of these need an API key.
