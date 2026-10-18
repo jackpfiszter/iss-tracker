@@ -150,8 +150,16 @@
         .sat-panel { width: 300px; max-height: min(62vh, 480px); overflow-y: auto; overscroll-behavior: contain; border-radius: 22px; padding: 14px 16px 10px; animation: toast-in 0.5s var(--ease) both; }
         .sat-panel[hidden] { display: none; }
         .sat-group { margin: 14px 0 4px; font: 500 11px 'Inter', sans-serif; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); }
+        .sat-item { display: flex; align-items: center; gap: 6px; }
+        .sat-item .sat-row { flex: 1; min-width: 0; }
+        .sat-focus { flex: none; width: 30px; height: 30px; display: grid; place-items: center; border: 0; border-radius: 50%; background: none; color: var(--text-3); cursor: pointer; transition: color 0.3s, background 0.3s; }
+        .sat-focus svg { width: 15px; height: 15px; }
+        .sat-focus:hover { color: var(--text); background: rgba(255, 255, 255, 0.08); }
+        .sat-focus[aria-pressed="true"] { color: var(--accent); }
+        .craft-tag span { cursor: pointer; }
+        .craft-tag:hover span { color: var(--text); }
         .sat-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; cursor: pointer; }
-        .sat-row input { accent-color: var(--c); width: 15px; height: 15px; flex: none; margin: 0; cursor: pointer; }
+        span.sat-row { cursor: default; }        .sat-row input { accent-color: var(--c); width: 15px; height: 15px; flex: none; margin: 0; cursor: pointer; }
         .sat-row i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); box-shadow: 0 0 8px var(--c); flex: none; }
         .sat-row span { display: flex; flex-direction: column; min-width: 0; }
         .sat-row b { font-size: 13px; font-weight: 500; color: var(--text); }
@@ -415,6 +423,10 @@
                 <div class="tp-head">
                     <span class="eyebrow">Satellites</span>
                     <button class="link-btn" id="satReset">Reset</button>
+                </div>
+                <div class="sat-item">
+                    <span class="sat-row"><i style="--c: var(--accent)"></i><span><b>International Space Station</b><small>The default focus</small></span></span>
+                    <button class="sat-focus" id="satIss" aria-pressed="true" title="Follow the ISS" aria-label="Follow the ISS"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></svg></button>
                 </div>
                 <div id="satList"></div>
             </div>

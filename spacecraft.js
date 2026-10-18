@@ -92,6 +92,8 @@ for (const craft of SPACECRAFT) {
     craft.tag.style.setProperty('--c', hex(craft.color));
     craft.tag.innerHTML = `<i></i><span>${craft.name}</span>`;
     craft.tag.style.opacity = 0;
+    craft.tag.title = `Follow ${craft.name}`;
+    craft.tag.addEventListener('click', () => setFocus(craft));
     document.getElementById('craftTags').append(craft.tag);
 }
 
@@ -204,6 +206,22 @@ function updateConstellation(layer, now, vis) {
     pos.needsUpdate = true;
 }
 
+// ─── FOCUS ───────────────────────────────────────────────────────────────────
+// What the Earth view keeps in frame: the ISS unless a satellite is chosen.
+// (Ride along and Cupola are the ISS's own 3D views, so they stay with it.)
+let focusCraft = null;
+const focusPoint = () => focusCraft && focusCraft.state ? focusCraft.state : live.p ? live : null;
+
+function setFocus(craft) {
+    if (craft && !craft.on) setPicked(craft.key, true);
+    focusCraft = craft;
+    renderFocus();
+    flyTo('earth', 2200);
+    const f = craft && craft.state;
+    toast('◎', craft ? `Following ${craft.name}` : 'Following the ISS',
+        f ? `${fmt.int.format(f.alt)} km above ${placeName(f.lat, f.lon).name}` : craft ? 'Waiting for its orbit data' : '');
+}
+
 // Distance between two spacecraft, in km
 const craftDistance = (a, b) => a.distanceTo(b) / R * EARTH_RADIUS_KM;
 
@@ -230,7 +248,10 @@ function updateSpacecraft(now, far) {
         const sheetTop = PHONE.matches ? innerHeight - sheet.offsetHeight : innerHeight;
         const onScreen = z < 1 && x > 0 && x < innerWidth && y > 70 && y < sheetTop - 10 && !occluded(craft.p);
         const op = vis > 0.5 && onScreen ? 1 : 0;
-        if (String(op) !== craft.tag.style.opacity) craft.tag.style.opacity = op;
+        if (String(op) !== craft.tag.style.opacity) {
+            craft.tag.style.opacity = op;
+            craft.tag.style.pointerEvents = op ? 'auto' : 'none';   // a visible label is a button
+        }
         // Always follow, even while hidden or fading, so a label never fades
         // back in at a stale spot and then jumps
         // (behind the camera the projection mirrors, so leave it where it was)
@@ -246,7 +267,11 @@ function setPicked(key, on) {
     if (craft) {
         craft.on = on;
         if (on) { craft.pathAt = 0; loadSpacecraft(craft); }
-        else craft.tag.style.opacity = 0;
+        else {
+            craft.tag.style.opacity = 0;
+            craft.tag.style.pointerEvents = 'none';
+            if (focusCraft === craft) { focusCraft = null; renderFocus(); }   // back to the ISS
+        }
     }
     const layer = CONSTELLATIONS.find(l => l.key === key);
     if (layer) {
@@ -256,7 +281,9 @@ function setPicked(key, on) {
 }
 
 function buildSatPicker() {
-    const row = (key, name, note, color, size) => {
+    const row = (key, name, note, color, craft) => {
+        const wrap = document.createElement('div');
+        wrap.className = 'sat-item';
         const label = document.createElement('label');
         label.className = 'sat-row';
         label.style.setProperty('--c', hex(color));
@@ -267,16 +294,34 @@ function buildSatPicker() {
         label.querySelector('b').textContent = name;
         label.querySelector('small').textContent = note;
         box.addEventListener('change', () => setPicked(key, box.checked));
-        return label;
+        wrap.append(label);
+        if (craft) {
+            const go = document.createElement('button');
+            go.className = 'sat-focus';
+            go.dataset.key = key;
+            go.title = `Follow ${name}`;
+            go.setAttribute('aria-label', `Follow ${name}`);
+            go.innerHTML = '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></svg>';
+            go.addEventListener('click', () => setFocus(craft));
+            wrap.append(go);
+        }
+        return wrap;
     };
     const heading = text => Object.assign(document.createElement('h4'), { className: 'sat-group', textContent: text });
     const list = byId('satList');
+    byId('satIss').addEventListener('click', () => setFocus(null));
     for (const g of CRAFT_GROUPS) {
-        list.append(heading(g.title), ...SPACECRAFT.filter(c => c.group === g.key).map(c => row(c.key, c.name, c.note, c.color)));
+        list.append(heading(g.title), ...SPACECRAFT.filter(c => c.group === g.key).map(c => row(c.key, c.name, c.note, c.color, c)));
     }
     list.append(heading('Constellations'), ...CONSTELLATIONS.map(l => row(l.key, l.name, l.note, l.color)));
 }
 buildSatPicker();
+
+function renderFocus() {
+    byId('satIss').setAttribute('aria-pressed', String(!focusCraft));
+    byId('satList').querySelectorAll('.sat-focus').forEach(b =>
+        b.setAttribute('aria-pressed', String(!!focusCraft && b.dataset.key === focusCraft.key)));
+}
 
 function toggleSatPanel(open = byId('satPanel').hidden) {
     byId('satPanel').hidden = !open;
@@ -285,7 +330,9 @@ function toggleSatPanel(open = byId('satPanel').hidden) {
 }
 
 byId('satsBtn').addEventListener('click', () => toggleSatPanel());
+renderFocus();
 byId('satReset').addEventListener('click', () => {
+    if (focusCraft) { focusCraft = null; renderFocus(); }
     byId('satList').querySelectorAll('input').forEach(box => {
         box.checked = SAT_DEFAULT.includes(box.dataset.key);
         setPicked(box.dataset.key, box.checked);

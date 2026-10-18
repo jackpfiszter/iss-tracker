@@ -166,7 +166,8 @@ let autoTab = false;
 function flyTo(newMode, duration = 2600) {
     if (newMode === 'sky' && !homeNormal) { requestSky(); return; }
     if (newMode === 'earth') {
-        if (live.p) { earthView.lat = live.lat * 0.6; earthView.lon = live.lon; }
+        const f = focusPoint();
+        if (f) { earthView.lat = f.lat * 0.6; earthView.lon = f.lon; }
         earthView.userZoomed = false;
         earthView.dist = earthView.targetDist = fitDistance();
     }
@@ -915,13 +916,14 @@ function watchFrameRate() {
         look.vy *= k;
     }
     // (not when fast-forwarding: the ISS laps too quickly to chase)
-    const idle = mode === 'earth' && !flight && !pointers.size && live.p && performance.now() - lastInteraction > 6000 && timeWarp.rate <= 60;
+    const focus = focusPoint();
+    const idle = mode === 'earth' && !flight && !pointers.size && focus && performance.now() - lastInteraction > 6000 && timeWarp.rate <= 60;
     earthView.drift += ((idle ? 1 : 0) - earthView.drift) * damp(0.5, dt);
-    if (mode === 'earth' && live.p && earthView.drift > 0.001) {
-        const dLon = ((live.lon - earthView.lon + 540) % 360) - 180;
+    if (mode === 'earth' && focus && earthView.drift > 0.001) {
+        const dLon = ((focus.lon - earthView.lon + 540) % 360) - 180;
         const k    = damp(0.25, dt) * earthView.drift;
         earthView.lon += dLon * k;
-        earthView.lat += (live.lat * 0.6 - earthView.lat) * k;
+        earthView.lat += (focus.lat * 0.6 - earthView.lat) * k;
     }
 
     updateCamera(dt);
