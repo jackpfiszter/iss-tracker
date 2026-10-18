@@ -28,7 +28,8 @@ Then open http://localhost:8765. Opening `index.html` straight from disk won't w
 ## Extras
 
 - **Time machine** (`T`, or click the clock): pause, play at up to 3,600× (an hour a second), or scrub from a day ago to three days ahead. The ISS, sun, moon, stars, day and night and the pass predictions all follow; a chip by the clock shows you're off live time. Live weather and the live camera stay in the present.
-- **Other spacecraft:** China's Tiangong station and the Hubble Space Telescope, with their orbits, in the Earth and My sky views.
+- **Other spacecraft:** China's Tiangong station, the Hubble Space Telescope and the Fermi, Swift and Terra satellites, with their orbits, in the Earth and My sky views.
+- **Starlink** (`L`, or the dots button): the whole constellation, several thousand satellites, as a cloud of dots. Off by default and remembered in this browser; the orbit data (one CelesTrak download) only loads once you switch it on.
 - **Clouds** (`K`, or the cloud button): hide the cloud layer for a clear view of the surface. Remembered in this browser.
 - **Sound** (`M`, or the speaker button): an optional ambient soundscape made in the browser, warmer in sunlight and darker in Earth's shadow, with a chime at each orbital sunrise and sunset.
 

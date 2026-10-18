@@ -6,6 +6,9 @@
 const SPACECRAFT = [
     { id: 48274, name: 'Tiangong', color: 0xff8f6b },
     { id: 20580, name: 'Hubble',   color: 0xc7a8ff },
+    { id: 33053, name: 'Fermi',    color: 0x7fd8ff },
+    { id: 28485, name: 'Swift',    color: 0xffd86b },
+    { id: 25994, name: 'Terra',    color: 0x8fe39a },
 ];
 const CRAFT_ORBIT_POINTS = 120;
 
@@ -73,11 +76,82 @@ function fillCraftOrbit(craft, now) {
     pos.needsUpdate = true;
 }
 
+// ─── STARLINK ────────────────────────────────────────────────────────────────
+// The whole constellation (thousands of satellites) as one cloud of dots, from
+// a single CelesTrak group download. Off until switched on (L or the button);
+// positions are recomputed every couple of seconds rather than every frame.
+const STARLINK_KEY = 'iss-tracker.starlink';
+const STARLINK_URL = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=starlink&FORMAT=tle';
+const STARLINK_REFRESH = 2000;
+const starlink = { on: false, sats: null, loading: false, at: 0, count: 0 };
+try { starlink.on = localStorage.getItem(STARLINK_KEY) === 'on'; } catch { /* storage unavailable */ }
+
+starlink.points = new THREE.Points(new THREE.BufferGeometry(), new THREE.PointsMaterial({
+    color: srgb(0xcfe4ff), size: 2.2, sizeAttenuation: false,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0,
+}));
+starlink.points.renderOrder = 3;
+starlink.points.frustumCulled = false;
+scene.add(starlink.points);
+
+async function loadStarlink() {
+    if (starlink.sats || starlink.loading) return;
+    starlink.loading = true;
+    try {
+        const r = await fetch(STARLINK_URL);
+        if (!r.ok) throw new Error(r.status);
+        const lines = (await r.text()).split('\n').map(l => l.trim()).filter(Boolean);
+        const sats = [];
+        for (let i = 0; i + 2 < lines.length; i += 3) {
+            const rec = satellite.twoline2satrec(lines[i + 1], lines[i + 2]);
+            if (!rec.error) sats.push(rec);
+        }
+        if (!sats.length) throw new Error('no usable elements');
+        starlink.sats = sats;
+        starlink.points.geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(sats.length * 3), 3));
+        starlink.at = 0;
+        // Elements go stale over days, so refresh them every 6 hours
+        setTimeout(() => { starlink.sats = null; if (starlink.on) loadStarlink(); }, 6 * 60 * 60 * 1000);
+    } catch (e) {
+        console.warn('Starlink orbits:', e.message || e);
+        setTimeout(() => { if (starlink.on) loadStarlink(); }, 10 * 60 * 1000);
+    }
+    starlink.loading = false;
+}
+
+function setStarlink(on) {
+    starlink.on = on;
+    byId('starlinkBtn').setAttribute('aria-pressed', String(on));
+    try { localStorage.setItem(STARLINK_KEY, on ? 'on' : 'off'); } catch { /* not persisted */ }
+    if (on) loadStarlink();
+}
+
+function updateStarlink(now, vis) {
+    const p = starlink.points.material;
+    p.opacity += ((starlink.on && starlink.sats ? vis * 0.85 : 0) - p.opacity) * 0.1;
+    starlink.points.visible = p.opacity > 0.01;
+    if (!starlink.points.visible || Math.abs(now - starlink.at) < STARLINK_REFRESH) return;
+    starlink.at = now.getTime();
+    const gmst = satellite.gstime(now);
+    const pos = starlink.points.geometry.attributes.position;
+    let n = 0;
+    for (const rec of starlink.sats) {
+        const pv = satellite.propagate(rec, now);
+        if (!pv.position) continue;   // decayed or out of range
+        const geo = satellite.eciToGeodetic(pv.position, gmst);
+        const v = latLonToVector3(geo.latitude / DEG, wrapLon(geo.longitude / DEG), altToRadius(geo.height));
+        pos.setXYZ(n++, v.x, v.y, v.z);
+    }
+    starlink.points.geometry.setDrawRange(0, n);
+    pos.needsUpdate = true;
+}
+
 // Distance between two spacecraft, in km
 const craftDistance = (a, b) => a.distanceTo(b) / R * EARTH_RADIUS_KM;
 
 function updateSpacecraft(now, far) {
     const showMode = (mode === 'earth' || mode === 'sky') && !flight;
+    updateStarlink(now, showMode ? far : 0);
     for (const craft of SPACECRAFT) {
         if (!craft.satrec) continue;
         const s = issState(craft.satrec, now);
