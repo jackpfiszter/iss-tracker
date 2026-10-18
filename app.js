@@ -312,9 +312,8 @@ window.addEventListener('keydown', e => {
     const key = e.key.toLowerCase();
     const target = { 1: 'earth', 2: 'follow', 3: 'cupola', 4: 'sky', f: 'follow', c: 'cupola' }[key];
     if (key === 'k') setClouds(!showClouds);
-    if (key === 'l') setStarlink(!starlink.on);
     if (target && target !== mode) flyTo(target);
-    if (key === 'r' || (key === 'escape' && mode !== 'earth' && byId('timePanel').hidden)) flyTo('earth');
+    if (key === 'r' || (key === 'escape' && mode !== 'earth' && byId('timePanel').hidden && byId('satPanel').hidden)) flyTo('earth');
 });
 
 // ─── UI: MODES, TABS, SHEET ──────────────────────────────────────────────────
@@ -780,9 +779,6 @@ function setClouds(on) {
 setClouds(showClouds);
 cloudsOn.value = showClouds ? 1 : 0;
 $('cloudsBtn').addEventListener('click', () => setClouds(!showClouds));
-setStarlink(starlink.on);
-$('starlinkBtn').addEventListener('click', () => setStarlink(!starlink.on));
-
 // ─── NEWS ────────────────────────────────────────────────────────────────────
 // Spaceflight News API — free, keyless, CORS-enabled
 async function updateNews() {

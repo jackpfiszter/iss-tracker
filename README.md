@@ -28,8 +28,7 @@ Then open http://localhost:8765. Opening `index.html` straight from disk won't w
 ## Extras
 
 - **Time machine** (`T`, or click the clock): pause, play at up to 3,600× (an hour a second), or scrub from a day ago to three days ahead. The ISS, sun, moon, stars, day and night and the pass predictions all follow; a chip by the clock shows you're off live time. Live weather and the live camera stay in the present.
-- **Other spacecraft:** China's Tiangong station, the Hubble Space Telescope and the Fermi, Swift and Terra satellites, with their orbits, in the Earth and My sky views.
-- **Starlink** (`L`, or the dots button): the whole constellation, several thousand satellites, as a cloud of dots. Off by default and remembered in this browser; the orbit data (one CelesTrak download) only loads once you switch it on.
+- **Other satellites** (`L`, or the satellite button): pick from Tiangong, Hubble, Fermi, Swift, NuSTAR, IXPE, Terra, Aqua, Landsat 9, Sentinel-2A, NOAA 20, Sentinel-6, ICESat-2 and a few veterans (Vanguard 1, AO-7, Envisat), each with a label and orbit, or switch on a whole constellation (Starlink, OneWeb, Iridium, GPS) as a cloud of dots. Tiangong and Hubble start on. Your picks are remembered in this browser, and a satellite's orbit data only downloads once you tick it. James Webb isn't included: it sits 1.5 million km out at L2 and has no ordinary orbit data.
 - **Clouds** (`K`, or the cloud button): hide the cloud layer for a clear view of the surface. Remembered in this browser.
 - **Sound** (`M`, or the speaker button): an optional ambient soundscape made in the browser, warmer in sunlight and darker in Earth's shadow, with a chime at each orbital sunrise and sunset.
 
@@ -56,7 +55,7 @@ The app downloads the ISS's current orbital elements (a TLE) and uses [satellite
 - `cloudtiles.js`: streams live 2 km satellite cloud imagery around the view (desktop)
 - `weather.js`: live cloud map and aurora forecast
 - `timemachine.js`: the shared clock (`clockNow()`) and the time machine
-- `spacecraft.js`: Tiangong and Hubble
+- `spacecraft.js`: the satellite picker, other satellites and constellations
 - `crew.js`, `livecam.js`, `sound.js`: the Crew and Live tabs and the ambient sound
 - `app.js`: data, camera modes and UI
 
@@ -90,6 +89,6 @@ Add `?t=<minutes>` to the URL to shift the clock, e.g. `?t=30` to see the ISS in
 - News: [Spaceflight News API](https://spaceflightnewsapi.net/) (updates every 10 min)
 - Crew: [international-space-station-APIs](https://github.com/corquaid/international-space-station-APIs) (community maintained), photos from Wikimedia Commons
 - Live video: NASA's official YouTube streams, embedded from youtube-nocookie.com. NASA occasionally restarts these streams under a new address; `LIVE_CAMS` in `livecam.js` holds the current ones, and the ↗ button opens NASA's live page.
-- Tiangong and Hubble orbits: [CelesTrak](https://celestrak.org/), falling back to [TLE API](https://tle.ivanstanojevic.me/)
+- Other satellite and constellation orbits: [CelesTrak](https://celestrak.org/), falling back to [TLE API](https://tle.ivanstanojevic.me/)
 
 None of these need an API key.
