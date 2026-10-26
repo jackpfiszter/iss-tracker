@@ -18,7 +18,7 @@ Then open http://localhost:8765. Opening `index.html` straight from disk won't w
 
 | Key | Mode | What you see |
 | --- | --- | --- |
-| `1` | **Earth** | The whole planet, with a label on the ISS. Left alone, the view eases round to keep the ISS in frame. |
+| `1` | **Earth** | The whole planet, with a label on the ISS. Left alone, the view eases round to keep the ISS (or any satellite you've chosen to follow) in frame. |
 | `2` / `F` | **Ride along** | A chase camera behind a 3D ISS whose solar arrays track the sun. Drag to look around, scroll to zoom: come in close and NASA's high-detail model loads (on desktop), with textured modules, handrails, payloads and the new roll-out arrays. |
 | `3` / `C` | **Cupola** | Inside the station's seven-window Cupola, the real one from NASA's interior model (bolted frames, handrails, the robotics workstation's controls), lit by the real sun through the windows. Drag to look around, scroll to zoom the lens. |
 | `4` | **My sky** | Flies to your location and draws the next visible pass on the ground and on a sky chart. |
